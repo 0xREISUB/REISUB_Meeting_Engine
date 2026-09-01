@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    command: --dev
+    ports:
+      - "7880:7880" # API ve WebSocket portu
+      - "7881:7881" # TURN portu
+      - "7882:7882/udp" # WebRTC medya trafiği için UDP portu
+    restart: unless-stopped
