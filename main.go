@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"time"
 
@@ -39,6 +40,15 @@ func main() {
 	r.POST("/register", register)
 	r.POST("/login", login)
 	r.POST("/logout", logout)
+	r.GET("/users", getUsers)
+
+	// PRODUCTION UYARISI
+	log.Println("==================================================================")
+	log.Println(" UYARI: GÜVENLİK AÇIĞI RİSKİ!")
+	log.Println(" /users UÇ NOKTASI ŞU AN AKTİF DURUMDA.")
+	log.Println(" PRODUCTION'A ÇIKMADAN ÖNCE r.GET(\"/users\") SATIRINI VE")
+	log.Println(" getUsers FONKSİYONUNU KESİNLİKLE SİLİN!")
+	log.Println("==================================================================")
 
 	r.Run(":8080") // Sunucuyu başlat
 }
@@ -104,7 +114,7 @@ func login(c *gin.Context) {
 		return
 	}
 
-	// BAŞARILI GİRİŞ: Yeni token oluştur. 
+	// BAŞARILI GİRİŞ: Yeni token oluştur.
 	// Bu sayede eski token geçersiz kalır ve sadece son giriş yapılan cihaz aktif olur.
 	newToken := generateToken()
 	db.Model(&user).Update("token", newToken)
@@ -129,9 +139,22 @@ func logout(c *gin.Context) {
 		return
 	}
 
-	// ÇIKIŞ: Tokeni veritabanında tamamen sıfırla. 
+	// ÇIKIŞ: Tokeni veritabanında tamamen sıfırla.
 	// Bu sayede Flutter uygulamasındaki eski token artık veritabanında eşleşmeyecek.
 	db.Model(&user).Update("token", "")
 
 	c.JSON(http.StatusOK, gin.H{"message": "Başarıyla çıkış yapıldı"})
+}
+
+func getUsers(c *gin.Context) {
+	var users []User
+	// Veritabanındaki tüm kullanıcıları çeker
+	if err := db.Find(&users).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Kullanıcılar getirilemedi"})
+		return
+	}
+
+	// Şifre hash'lerini ekranda görmemek için gizleyebilirsin ama
+	// test aşamasında her şeyi görmek adına doğrudan döndürüyoruz.
+	c.JSON(http.StatusOK, gin.H{"users": users})
 }
