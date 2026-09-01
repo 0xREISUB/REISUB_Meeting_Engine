@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -141,7 +141,7 @@ func logout(c *gin.Context) {
 
 	// ÇIKIŞ: Tokeni veritabanında tamamen sıfırla.
 	// Bu sayede Flutter uygulamasındaki eski token artık veritabanında eşleşmeyecek.
-	db.Model(&user).Update("token", "")
+	db.Model(&user).Update("token", generateToken())
 
 	c.JSON(http.StatusOK, gin.H{"message": "Başarıyla çıkış yapıldı"})
 }
