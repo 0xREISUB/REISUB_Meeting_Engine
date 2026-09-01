@@ -7,6 +7,9 @@ import (
 )
 
 func SetupRoutes(r *gin.Engine) {
+	// Sistem Test Rotası
+	r.GET("/ping", controllers.Ping)
+
 	r.POST("/register", controllers.Register)
 	r.POST("/login", controllers.Login)
 	r.POST("/logout", controllers.Logout)
