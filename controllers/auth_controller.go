@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"strings"
 
 	"reisub-backend/database"
 	"reisub-backend/models"
@@ -66,7 +67,10 @@ func Login(c *gin.Context) {
 }
 
 func Logout(c *gin.Context) {
-	token := c.GetHeader("Authorization")
+	token := strings.TrimSpace(c.GetHeader("Authorization"))
+	if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+		token = strings.TrimSpace(token[len("Bearer "):])
+	}
 	if token == "" || len(token) < 30 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Token geçersiz"})
 		return
