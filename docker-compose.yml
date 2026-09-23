@@ -4,7 +4,7 @@ services:
   livekit:
     image: livekit/livekit-server:latest
     container_name: livekit-server
-    command: ["--dev", "--keys", "devkey: devsecret"]
+    command: ["--dev", "--bind", "0.0.0.0", "--keys", "devkey: devsecret"]
     ports:
       - "7880:7880" # API ve WebSocket portu
       - "7881:7881" # TURN portu

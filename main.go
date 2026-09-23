@@ -38,14 +38,14 @@ func main() {
 func corsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
-		isLocalOrigin := strings.HasPrefix(origin, "http://localhost:") ||
-			strings.HasPrefix(origin, "http://127.0.0.1:")
+		isAllowedOrigin := isCorsOriginAllowed(origin)
 
-		if isLocalOrigin {
+		if isAllowedOrigin {
 			c.Header("Access-Control-Allow-Origin", origin)
 			c.Header("Vary", "Origin")
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			c.Header("Access-Control-Allow-Private-Network", "true")
 		}
 
 		if c.Request.Method == http.MethodOptions {
@@ -55,4 +55,27 @@ func corsMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func isCorsOriginAllowed(origin string) bool {
+	if origin == "" {
+		return false
+	}
+
+	if os.Getenv("CORS_ALLOW_ALL") == "true" {
+		return true
+	}
+
+	if strings.HasPrefix(origin, "http://localhost:") ||
+		strings.HasPrefix(origin, "http://127.0.0.1:") {
+		return true
+	}
+
+	for _, allowedOrigin := range strings.Split(os.Getenv("CORS_ALLOWED_ORIGINS"), ",") {
+		if strings.TrimSpace(allowedOrigin) == origin {
+			return true
+		}
+	}
+
+	return false
 }
