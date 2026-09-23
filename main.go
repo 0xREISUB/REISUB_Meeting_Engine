@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 	"reisub-backend/database"
 	"reisub-backend/routes"
 	"strings"
@@ -27,7 +28,11 @@ func main() {
 	log.Println(" PRODUCTION'A ÇIKMADAN ÖNCE routes.go İÇİNDEN KESİNLİKLE SİLİN!")
 	log.Println("==================================================================")
 
-	r.Run(":8080")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	r.Run(":" + port)
 }
 
 func corsMiddleware() gin.HandlerFunc {

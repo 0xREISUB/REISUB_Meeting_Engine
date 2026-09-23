@@ -2,6 +2,7 @@ package routes
 
 import (
 	"reisub-backend/controllers"
+	"reisub-backend/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,5 +16,10 @@ func SetupRoutes(r *gin.Engine) {
 	r.POST("/logout", controllers.Logout)
 	r.GET("/users", controllers.GetUsers) // SİLİNECEK!
 
-	r.POST("/rooms", controllers.CreateRoom)
+	roomRoutes := r.Group("/rooms")
+	roomRoutes.Use(middleware.RequireAuth())
+	{
+		roomRoutes.POST("", controllers.CreateRoom)
+		roomRoutes.POST("/join", controllers.JoinRoom)
+	}
 }
