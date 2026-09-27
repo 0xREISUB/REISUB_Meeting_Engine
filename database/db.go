@@ -18,5 +18,5 @@ func ConnectDB() {
 	}
 
 	// Tabloları oluştur
-	DB.AutoMigrate(&models.User{})
+	DB.AutoMigrate(&models.User{}, &models.Room{})
 }
