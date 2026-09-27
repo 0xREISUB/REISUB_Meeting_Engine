@@ -54,7 +54,7 @@ func CreateRoom(c *gin.Context) {
 		return
 	}
 
-	response, err := makeRoomResponse(room, user.ID, user.Nick, true)
+	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), true)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
