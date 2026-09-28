@@ -50,12 +50,16 @@ services:
     restart: unless-stopped
 
   manager:
+    networks:
+      - default
+      - proxy-agi
     build:
       context: .
       dockerfile: Dockerfile
       target: manager
     restart: unless-stopped
     environment:
+      GIN_MODE: release
       MANAGER_ADDR: :8090
       MANAGER_CONFIG_PATH: /manager-config/stack.env
       MANAGER_ADMIN_HASH_PATH: /manager-data/admin.hash
@@ -90,3 +94,7 @@ volumes:
     external: true
   manager_data:
     name: reisub-meeting-manager
+networks:
+  proxy-agi:
+    external: true
+    name: proxy-agi
