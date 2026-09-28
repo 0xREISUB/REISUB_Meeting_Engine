@@ -21,5 +21,7 @@ func SetupRoutes(r *gin.Engine) {
 	{
 		roomRoutes.POST("", controllers.CreateRoom)
 		roomRoutes.POST("/join", controllers.JoinRoom)
+		roomRoutes.GET("/:room_id/messages", controllers.ListRoomMessages)
+		roomRoutes.POST("/:room_id/messages", controllers.SendRoomMessage)
 	}
 }
