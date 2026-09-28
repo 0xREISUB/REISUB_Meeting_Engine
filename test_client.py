@@ -27,17 +27,6 @@ def login(nick, password):
         TOKEN = data["token"]
         print(f"--> Yeni Token Alındı: {TOKEN[:15]}...")
 
-def get_users():
-    print_separator("VERİTABANINDAKİ KULLANICILAR")
-    response = requests.get(f"{BASE_URL}/users")
-    users = response.json().get("users", [])
-    
-    for u in users:
-        print(f"ID: {u['ID']} | Nick: {u['Nick']}")
-        print(f"Token: {u['Token'] if u['Token'] else '[BOS - CIKIS YAPILMIS]'}")
-        print(f"Tarih: {u['CreatedAt']}")
-        print("-")
-
 def logout():
     global TOKEN
     print_separator("ÇIKIŞ YAPILIYOR")
@@ -59,13 +48,5 @@ time.sleep(1)
 login(test_nick, test_pass)
 time.sleep(1)
 
-# 3. Veritabanını kontrol et (Token dolu olmalı)
-get_users()
-time.sleep(1)
-
-# 4. Çıkış yap
+# 3. Çıkış yap
 logout()
-time.sleep(1)
-
-# 5. Veritabanını tekrar kontrol et (Token silinmiş olmalı)
-get_users()

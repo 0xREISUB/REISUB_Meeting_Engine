@@ -17,16 +17,13 @@ func main() {
 
 	// Web sunucusunu başlat
 	r := gin.Default()
+	if err := r.SetTrustedProxies(nil); err != nil {
+		log.Fatal("Güvenilir proxy ayarı yapılandırılamadı: ", err)
+	}
 	r.Use(corsMiddleware())
 
 	// Rotaları (Endpointleri) yükle
 	routes.SetupRoutes(r)
-
-	// PRODUCTION UYARISI
-	log.Println("==================================================================")
-	log.Println(" UYARI: /users UÇ NOKTASI ŞU AN AKTİF DURUMDA.")
-	log.Println(" PRODUCTION'A ÇIKMADAN ÖNCE routes.go İÇİNDEN KESİNLİKLE SİLİN!")
-	log.Println("==================================================================")
 
 	port := os.Getenv("PORT")
 	if port == "" {
