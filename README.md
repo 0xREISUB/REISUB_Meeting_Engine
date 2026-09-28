@@ -52,4 +52,4 @@ To inspect service output:
 docker compose --env-file config/stack.env logs --tail=100 backend livekit manager
 ```
 
-The panel remains available when the backend or LiveKit is stopped. Routine restarts and container recreation retain the database volume. Do not use `docker compose down -v` unless you intentionally want to delete the database.
+The panel remains available when the backend or LiveKit is stopped. Its start action creates a missing service container; restart recreates the service if it is absent. Routine restarts and container recreation retain the database volume. Do not use `docker compose down -v` unless you intentionally want to delete the database.

@@ -67,14 +67,28 @@ func (d *DockerCompose) Status(ctx context.Context) ([]ServiceStatus, error) {
 }
 
 func (d *DockerCompose) Action(ctx context.Context, service, action string) error {
-	if err := validateService(service); err != nil {
+	args, err := actionArguments(service, action)
+	if err != nil {
 		return err
 	}
-	if action != "start" && action != "stop" && action != "restart" {
-		return errors.New("İşlem desteklenmiyor")
-	}
-	_, err := d.run(ctx, action, service)
+	_, err = d.run(ctx, args...)
 	return err
+}
+
+func actionArguments(service, action string) ([]string, error) {
+	if err := validateService(service); err != nil {
+		return nil, err
+	}
+	switch action {
+	case "start":
+		return []string{"up", "--detach", "--no-build", service}, nil
+	case "stop":
+		return []string{"stop", service}, nil
+	case "restart":
+		return []string{"up", "--detach", "--no-build", "--force-recreate", service}, nil
+	default:
+		return nil, errors.New("İşlem desteklenmiyor")
+	}
 }
 
 func (d *DockerCompose) Logs(ctx context.Context, service string) (string, error) {

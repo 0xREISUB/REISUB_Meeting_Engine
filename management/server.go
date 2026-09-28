@@ -72,7 +72,7 @@ func NewHandler(options ServerOptions) (http.Handler, error) {
 	}
 
 	router := gin.New()
-	router.Use(gin.Recovery(), securityHeaders())
+	router.Use(gin.Logger(), gin.Recovery(), securityHeaders())
 	router.GET("/_health", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 	router.GET("/", server.index)
 	router.POST("/login", server.login)
