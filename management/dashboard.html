@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{.CSRF}}">
+  <title>REISUB Servis Yönetimi</title>
+  <style>
+    :root { color-scheme: dark; --bg: #101918; --panel: #192422; --panel-2: #202e2a; --line: #344641; --text: #edf4f1; --muted: #a1b1ab; --accent: #80d8b0; --danger: #ff7272; --warn: #f2c879; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--text); background: var(--bg); font: 14px/1.45 system-ui, sans-serif; }
+    header { display: flex; align-items: center; justify-content: space-between; min-height: 68px; padding: 12px clamp(16px, 4vw, 44px); border-bottom: 1px solid var(--line); background: #141f1d; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; }
+    .mark { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--accent); color: var(--accent); font-size: 11px; }
+    button, input, select { font: inherit; }
+    button { min-height: 36px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel-2); color: var(--text); cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    button.primary { border-color: var(--accent); background: var(--accent); color: #10201a; font-weight: 700; }
+    button.danger { color: var(--danger); }
+    main { width: min(100% - 32px, 1080px); margin: 26px auto 60px; }
+    .topline { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    h1 { margin: 0; font-size: 22px; }
+    h2 { margin: 0 0 16px; font-size: 15px; }
+    .sub { margin: 4px 0 0; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    section { min-width: 0; border: 1px solid var(--line); background: var(--panel); padding: 18px; }
+    .services { display: grid; gap: 10px; }
+    .service { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 13px; border: 1px solid var(--line); background: #14201d; }
+    .service-title { display: flex; align-items: center; gap: 9px; font-weight: 700; text-transform: capitalize; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #687873; }
+    .dot.running { background: var(--accent); box-shadow: 0 0 0 3px #80d8b022; }
+    .dot.unhealthy { background: var(--danger); }
+    .state { color: var(--muted); font-size: 12px; }
+    .actions { display: flex; gap: 6px; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .field { min-width: 0; }
+    .field.wide { grid-column: 1 / -1; }
+    label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+    input, select { width: 100%; min-height: 39px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 3px; background: #101918; color: var(--text); }
+    .hint { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+    .form-actions { display: flex; justify-content: end; margin-top: 14px; }
+    .logs { margin-top: 12px; }
+    pre { min-height: 110px; max-height: 260px; overflow: auto; margin: 10px 0 0; padding: 12px; border: 1px solid var(--line); background: #0d1513; color: #c8d7d0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, monospace; }
+    .password-form { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 10px; }
+    .notice { display: none; margin: 0 0 14px; padding: 11px 13px; border: 1px solid var(--line); }
+    .notice.visible { display: block; }
+    .notice.error { border-color: #9e4444; color: #ffaaaa; }
+    .notice.success { border-color: #43775f; color: var(--accent); }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } .topline { align-items: start; flex-direction: column; } .password-form { grid-template-columns: 1fr; } }
+    @media (max-width: 440px) { .form-grid { grid-template-columns: 1fr; } .field.wide { grid-column: auto; } .service { align-items: start; flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark">RM</span><span>REISUB · Servis yönetimi</span></div>
+    <button id="logout">Oturumu kapat</button>
+  </header>
+  <main>
+    <div class="topline">
+      <div><h1>Operasyon</h1><p class="sub">Backend ve LiveKit servisleri</p></div>
+      <button id="refresh">Durumu yenile</button>
+    </div>
+    <div id="notice" class="notice" role="status"></div>
+    <div class="grid">
+      <section>
+        <h2>Servis durumu</h2>
+        <div id="services" class="services"></div>
+      </section>
+      <section>
+        <h2>Çalışma ayarları</h2>
+        <form id="settings-form">
+          <div class="form-grid">
+            <div class="field"><label for="api-key">LiveKit API key</label><input id="api-key" autocomplete="off" placeholder="Yükleniyor..."><p class="hint">Boş bırakırsan mevcut değer korunur.</p></div>
+            <div class="field"><label for="api-secret">LiveKit API secret</label><input id="api-secret" type="password" autocomplete="new-password" placeholder="Yükleniyor..."><p class="hint">Boş bırakırsan mevcut değer korunur.</p></div>
+            <div class="field wide"><label for="livekit-url">LiveKit public URL</label><input id="livekit-url" required></div>
+            <div class="field"><label for="port">Backend portu</label><input id="port" type="number" min="1" max="65535" required></div>
+            <div class="field"><label for="cors">CORS origin listesi</label><input id="cors" required><p class="hint">Virgülle ayrılmış origin adresleri.</p></div>
+          </div>
+          <div class="form-actions"><button class="primary" type="submit">Ayarları kaydet</button></div>
+        </form>
+      </section>
+      <section class="logs">
+        <div class="topline"><h2>Son loglar</h2><div class="actions"><select id="log-service" aria-label="Log servisi"><option value="backend">Backend</option><option value="livekit">LiveKit</option></select><button id="load-logs">Yükle</button></div></div>
+        <pre id="log-output">Loglar henüz yüklenmedi.</pre>
+      </section>
+      <section>
+        <h2>Admin parolası</h2>
+        <form id="password-form" class="password-form">
+          <div class="field"><label for="current-password">Mevcut parola</label><input id="current-password" type="password" autocomplete="current-password" required></div>
+          <div class="field"><label for="new-password">Yeni parola · en az 16 karakter</label><input id="new-password" type="password" autocomplete="new-password" minlength="16" required></div>
+          <button type="submit">Parolayı değiştir</button>
+        </form>
+      </section>
+    </div>
+  </main>
+  <script>
+    const csrf = document.querySelector('meta[name="csrf-token"]').content;
+    const notice = document.querySelector('#notice');
+    const managedServices = ['backend', 'livekit'];
+    function showNotice(message, isError = false) {
+      notice.textContent = message;
+      notice.className = `notice visible ${isError ? 'error' : 'success'}`;
+    }
+    async function api(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      headers.set('X-CSRF-Token', csrf);
+      if (options.body) headers.set('Content-Type', 'application/json');
+      const response = await fetch(path, { ...options, headers, credentials: 'same-origin' });
+      if (response.status === 401) { window.location.assign('/'); throw new Error('Oturum süresi doldu.'); }
+      const result = response.status === 204 ? null : await response.json();
+      if (!response.ok) throw new Error(result?.error || 'İşlem başarısız.');
+      return result;
+    }
+    async function loadStatus() {
+      const result = await api('/api/status');
+      const services = document.querySelector('#services');
+      services.replaceChildren();
+      for (const name of managedServices) {
+        const state = result.services.find(item => item.name === name) || { state: 'stopped' };
+        const row = document.createElement('div');
+        row.className = 'service';
+        const info = document.createElement('div');
+        const title = document.createElement('div');
+        title.className = 'service-title';
+        const dot = document.createElement('span');
+        dot.className = `dot ${state.state === 'running' ? (state.health === 'unhealthy' ? 'unhealthy' : 'running') : ''}`;
+        const label = document.createElement('span');
+        label.textContent = name;
+        title.append(dot, label);
+        const caption = document.createElement('div');
+        caption.className = 'state';
+        caption.textContent = [state.state, state.health].filter(Boolean).join(' · ');
+        info.append(title, caption);
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        for (const action of ['start', 'stop', 'restart']) {
+          const button = document.createElement('button');
+          button.textContent = { start: 'Başlat', stop: 'Durdur', restart: 'Yeniden başlat' }[action];
+          if (action === 'stop') button.classList.add('danger');
+          button.addEventListener('click', () => runAction(name, action));
+          actions.append(button);
+        }
+        row.append(info, actions);
+        services.append(row);
+      }
+    }
+    async function loadSettings() {
+      const settings = await api('/api/settings');
+      document.querySelector('#api-key').placeholder = settings.livekit_api_key_configured ? 'Tanımlı · değiştirmek için yeni değer gir' : 'Tanımlı değil';
+      document.querySelector('#api-secret').placeholder = settings.livekit_api_secret_configured ? 'Tanımlı · değiştirmek için yeni değer gir' : 'Tanımlı değil';
+      document.querySelector('#livekit-url').value = settings.livekit_public_url;
+      document.querySelector('#port').value = settings.port;
+      document.querySelector('#cors').value = settings.cors_allowed_origins;
+    }
+    async function loadLogs() {
+      const service = document.querySelector('#log-service').value;
+      const result = await api(`/api/logs?service=${encodeURIComponent(service)}`);
+      document.querySelector('#log-output').textContent = result.logs || 'Log bulunamadı.';
+    }
+    async function runAction(service, action) {
+      if ((action === 'stop' || action === 'restart') && !window.confirm(`${service} servisi ${action === 'stop' ? 'durdurulsun' : 'yeniden başlatılsın'} mı?`)) return;
+      try {
+        await api(`/api/services/${service}/${action}`, { method: 'POST' });
+        showNotice(`${service} için ${action} isteği tamamlandı.`);
+        await loadStatus();
+      } catch (error) { showNotice(error.message, true); }
+    }
+    document.querySelector('#settings-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const key = document.querySelector('#api-key');
+      const secret = document.querySelector('#api-secret');
+      const payload = {
+        livekit_api_key: key.value,
+        livekit_api_secret: secret.value,
+        livekit_public_url: document.querySelector('#livekit-url').value,
+        port: Number(document.querySelector('#port').value),
+        cors_allowed_origins: document.querySelector('#cors').value
+      };
+      try {
+        const result = await api('/api/settings', { method: 'POST', body: JSON.stringify(payload) });
+        key.value = '';
+        secret.value = '';
+        showNotice(result.recreated.length ? `Ayarlar kaydedildi. Yeniden oluşturulan servisler: ${result.recreated.join(', ')}` : 'Ayarlar kaydedildi; çalışan servis yoktu.');
+        await Promise.all([loadSettings(), loadStatus()]);
+      } catch (error) { showNotice(error.message, true); }
+    });
+    document.querySelector('#password-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await api('/api/password', { method: 'POST', body: JSON.stringify({ current_password: document.querySelector('#current-password').value, new_password: document.querySelector('#new-password').value }) });
+        window.location.assign('/');
+      } catch (error) { showNotice(error.message, true); }
+    });
+    document.querySelector('#logout').addEventListener('click', async () => {
+      try { await api('/logout', { method: 'POST' }); window.location.assign('/'); }
+      catch (error) { showNotice(error.message, true); }
+    });
+    document.querySelector('#refresh').addEventListener('click', () => loadStatus().catch(error => showNotice(error.message, true)));
+    document.querySelector('#load-logs').addEventListener('click', () => loadLogs().catch(error => showNotice(error.message, true)));
+    Promise.all([loadStatus(), loadSettings()]).catch(error => showNotice(error.message, true));
+    window.setInterval(() => loadStatus().catch(() => {}), 10000);
+  </script>
+</body>
+</html>

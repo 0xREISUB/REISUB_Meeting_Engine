@@ -1,12 +1,92 @@
-version: '3'
+name: reisub_meeting_engine
 
 services:
-  livekit:
-    image: livekit/livekit-server:latest
-    container_name: livekit-server
-    command: ["--dev", "--bind", "0.0.0.0", "--keys", "devkey: devsecret"]
-    ports:
-      - "7880:7880" # API ve WebSocket portu
-      - "7881:7881" # TURN portu
-      - "7882:7882/udp" # WebRTC medya trafiği için UDP portu
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend
     restart: unless-stopped
+    environment:
+      GIN_MODE: release
+      PORT: ${PORT:-8080}
+      DB_PATH: /data/reisub.db
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:?Set LIVEKIT_PUBLIC_URL in .env}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set CORS_ALLOWED_ORIGINS in .env}
+    ports:
+      - "${PORT:-8080}:${PORT:-8080}"
+    volumes:
+      - backend_data:/data
+    depends_on:
+      - livekit
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:${PORT:-8080}/ping
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    container_name: livekit-server
+    command:
+      - --dev
+      - --bind
+      - 0.0.0.0
+      - --keys
+      - "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}"
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    restart: unless-stopped
+
+  manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: manager
+    restart: unless-stopped
+    environment:
+      MANAGER_ADDR: :8090
+      MANAGER_CONFIG_PATH: /manager-config/stack.env
+      MANAGER_ADMIN_HASH_PATH: /manager-data/admin.hash
+      MANAGER_ADMIN_PASSWORD_FILE: /manager-config/admin-init.password
+      MANAGER_COOKIE_SECURE: ${MANAGER_COOKIE_SECURE:-true}
+      MANAGER_COMPOSE_FILE: /deployment/docker-compose.yml
+      MANAGER_PROJECT_DIR: /deployment
+      MANAGER_ENV_FILE: /manager-config/stack.env
+    ports:
+      - "${MANAGER_BIND_ADDRESS:-127.0.0.1}:${MANAGER_PORT:-8090}:8090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose.yml:/deployment/docker-compose.yml:ro
+      - ./config:/manager-config:rw
+      - manager_data:/manager-data
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:8090/_health
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  backend_data:
+    name: reisub-meeting-db
+    external: true
+  manager_data:
+    name: reisub-meeting-manager

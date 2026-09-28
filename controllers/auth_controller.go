@@ -86,9 +86,3 @@ func Logout(c *gin.Context) {
 	database.DB.Model(&user).Update("token", generateToken())
 	c.JSON(http.StatusOK, gin.H{"message": "Başarıyla çıkış yapıldı"})
 }
-
-func GetUsers(c *gin.Context) {
-	var users []models.User
-	database.DB.Find(&users)
-	c.JSON(http.StatusOK, gin.H{"users": users})
-}

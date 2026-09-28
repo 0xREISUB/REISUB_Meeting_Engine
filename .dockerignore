@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+!.env.example
+/config/stack.env
+/config/stack.env.bak
+/config/admin-init.password
+*.db
+*.db-shm
+*.db-wal
+*.test
+coverage.*
+profile.*
