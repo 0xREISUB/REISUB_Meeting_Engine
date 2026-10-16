@@ -84,3 +84,35 @@ docker compose --env-file config/stack.env logs --tail=100 backend livekit manag
 ```
 
 The panel remains available when the backend or LiveKit is stopped. Its start action creates a missing service container; restart recreates the service if it is absent. Routine restarts and container recreation retain the database volume. Do not use `docker compose down -v` unless you intentionally want to delete the database.
+
+## Room owner controls
+
+The authenticated user who creates a room is its owner. Owner privileges are
+checked by the backend against `Room.OwnerID`; clients receive no direct LiveKit
+room-admin grant.
+
+- `POST /rooms/:room_id/close` closes the room to new joins and deletes its LiveKit
+  media session. Closing can be retried safely after a transport failure.
+- `POST /rooms/:room_id/participants/:identity/microphone` accepts
+  `{"locked":true}` to mute and lock the microphone. The policy applies to the
+  user's current sessions and persists in SQLite for subsequent joins.
+- Send `{"locked":false}` to unlock, or
+  `{"locked":false,"request_unmute":true}` to unlock and ask the participant to
+  enable their microphone. The client must accept the request; remote unmute is
+  not enabled.
+
+Microphone locks revoke the microphone publishing source while preserving other
+media permissions. LiveKit participant attributes deliver locks and requests to
+clients, and participants cannot modify those attributes themselves.
+
+Deploy the backend and LiveKit Compose configuration together for this feature.
+The backend now explicitly creates rooms, and `room.auto_create: false` prevents
+an old room token from recreating a closed room. `LIVEKIT_INTERNAL_URL` is set to
+`http://livekit:7880` in Compose for authenticated server-to-server calls; outside
+Compose it falls back to `LIVEKIT_PUBLIC_URL` (converting WS/WSS to HTTP/HTTPS).
+SQLite tables are migrated automatically at backend startup.
+
+New join tokens expire after five minutes; active sessions are refreshed by
+LiveKit. On self-hosted LiveKit, existing tokens cannot be revoked immediately.
+An old token carrying earlier microphone permissions can therefore remain valid
+until it expires; freshly requested join tokens always apply the stored lock.

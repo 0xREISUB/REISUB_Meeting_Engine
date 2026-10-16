@@ -30,7 +30,7 @@ func ConnectDB() {
 	}
 
 	// Tabloları oluştur
-	if err := DB.AutoMigrate(&models.User{}, &models.Room{}, &models.ChatMessage{}); err != nil {
+	if err := DB.AutoMigrate(&models.User{}, &models.Room{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}); err != nil {
 		log.Fatal("Veritabanı tabloları güncellenemedi: " + err.Error())
 	}
 }

@@ -20,6 +20,8 @@ func SetupRoutes(r *gin.Engine) {
 	{
 		roomRoutes.POST("", controllers.CreateRoom)
 		roomRoutes.POST("/join", controllers.JoinRoom)
+		roomRoutes.POST("/:room_id/close", controllers.CloseRoom)
+		roomRoutes.POST("/:room_id/participants/:identity/microphone", controllers.SetParticipantMicrophone)
 		roomRoutes.GET("/:room_id/messages", controllers.ListRoomMessages)
 		roomRoutes.POST("/:room_id/messages", controllers.SendRoomMessage)
 	}
