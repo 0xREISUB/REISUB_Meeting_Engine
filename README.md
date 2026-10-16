@@ -116,3 +116,41 @@ New join tokens expire after five minutes; active sessions are refreshed by
 LiveKit. On self-hosted LiveKit, existing tokens cannot be revoked immediately.
 An old token carrying earlier microphone permissions can therefore remain valid
 until it expires; freshly requested join tokens always apply the stored lock.
+
+### Ekran paylaşımı ve toplantı ayarları
+
+Yeni odalarda `allow_participant_screen_share` varsayılan olarak `false` olur.
+Oda sahibi her zaman paylaşım isteyebilir; diğer katılımcılar yalnızca oda sahibi
+bu ayarı açarsa paylaşabilir. İzin tekrar kapatılırsa mevcut katılımcı paylaşımı
+sunucudan durdurulur. Aynı odada oda sahibi dahil yalnızca bir oturum paylaşabilir.
+
+Kimlik doğrulamalı API:
+
+- `GET /rooms/:room_id/state`: paylaşım izni ve `screen_share_identity`.
+- `POST /rooms/:room_id/settings`: oda sahibinden
+  `{"allow_participant_screen_share": true|false}`.
+- `POST /rooms/:room_id/screen-share/start`: `{"identity":"user-ID-UUID"}`;
+  yalnızca isteği yapan kullanıcının bağlı oturumu izin alır. Dolu oda `409` döner.
+- `POST /rooms/:room_id/screen-share/stop`: aynı kimlikle paylaşımı durdurur.
+
+Katılım JWT'leri yalnızca kamera ve (kilitli değilse) mikrofon kaynağına izin verir.
+Ekran ve ekran sesi izni yalnızca seçilen bağlı oturuma LiveKit `UpdateParticipant`
+üzerinden verilir. Mikrofon kilidi/açma işlemleri bu ekran kısıtlamasını korur.
+Oda başına kilit aynı backend sürecinde katılım, kapanış, mikrofon moderasyonu ve
+paylaşım değişikliklerini sıraya alır; mevcut dağıtım tek backend örneği kullanır.
+Birden fazla backend örneğine geçmeden önce dağıtık kilit/atomik rezervasyon gerekir.
+
+Kaybolan oturumun rezervasyonu sonraki durum/başlatma isteğinde temizlenir.
+İlk yayına başlamak için 30 saniyelik süre vardır; yayın sürdüğü sürece süre dolmaz.
+Yayını durdurma isteği izinleri hemen geri alır. İstemciler iki saniyede bir durumu
+kontrol eder; bağlantı/yayın beklenmedik şekilde biterse rezervasyon otomatik temizlenir.
+Önce Engine güncellenmeli, ardından yeni Linux/Android istemcileri kullanılmalıdır.
+Eski sürümden verilmiş JWT'ler önceki yetkilerini en çok mevcut beş dakikalık ömürleri
+boyunca taşıyabilir; dağıtım sonrası istemciler toplantıdan çıkıp yeniden katılmalıdır.
+
+İstemci ekran yayınına ana görüntüde öncelik verir. Masaüstünde tam ekran düğmesi
+katılımcı şeridini gizler. Paylaşımda fare tekerleğiyle veya telefonda iki parmakla
+1–6 kat yakınlaştırma ve sıfırlama bulunur. Android istemci, kullanıcı ekran yakalama
+iznini verdikten sonra `mediaProjection` ön plan servisi başlatır; bu sıra
+[LiveKit Flutter ekran paylaşımı akışını](https://github.com/livekit/client-sdk-flutter#screen-sharing)
+izler. Paylaşım bittiğinde ya da toplantıdan çıkıldığında servis kapanır.

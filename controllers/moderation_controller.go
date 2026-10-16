@@ -172,6 +172,8 @@ type microphoneModerationRequest struct {
 }
 
 func SetParticipantMicrophone(c *gin.Context) {
+	releaseRoom := lockRoomLifecycle(c.Param("room_id"))
+	defer releaseRoom()
 	room, ok := ownerRoom(c, false)
 	if !ok {
 		return
@@ -272,6 +274,11 @@ func applyMicrophonePolicy(ctx context.Context, service roomModerationService, r
 			attrs[microphoneRequestAttribute] = uuid.NewString()
 		}
 	}
+	var room models.Room
+	if err := database.DB.Where("room_id = ?", roomID).First(&room).Error; err != nil {
+		return err
+	}
+	restrictScreenShare(permission, p.Identity == room.ScreenShareIdentity)
 	permission.CanUpdateMetadata = false
 	if _, err := service.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{Room: roomID, Identity: p.Identity, Permission: permission, Attributes: attrs}); err != nil {
 		return err

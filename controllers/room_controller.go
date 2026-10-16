@@ -145,9 +145,14 @@ func makeRoomResponse(room models.Room, userID uint, participant string, isHost 
 	if err != nil {
 		return roomResponse{}, fmt.Errorf("Mikrofon yetkisi okunamadı")
 	}
+	sources := []livekit.TrackSource{livekit.TrackSource_CAMERA, livekit.TrackSource_MICROPHONE}
+	if locked {
+		sources = []livekit.TrackSource{livekit.TrackSource_CAMERA}
+	}
+	grant.SetCanPublishSources(sources)
 	attrs := map[string]string{microphoneLockAttribute: "false"}
 	if locked {
-		grant.SetCanPublishSources(nonMicrophoneSources())
+		grant.SetCanPublishSources(sources)
 		attrs[microphoneLockAttribute] = "true"
 		attrs[microphoneSourcesAttribute] = `{"can_publish":true,"sources":null}`
 	}
