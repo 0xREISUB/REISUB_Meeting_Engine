@@ -31,10 +31,14 @@ type fakeModeration struct {
 	deletes      int
 	deleteError  error
 	onDelete     func()
+	onCreate     func()
 }
 
 func (f *fakeModeration) CreateRoom(_ context.Context, r *livekit.CreateRoomRequest) (*livekit.Room, error) {
 	f.creates++
+	if f.onCreate != nil {
+		f.onCreate()
+	}
 	return &livekit.Room{Name: r.Name}, nil
 }
 func (f *fakeModeration) DeleteRoom(_ context.Context, _ *livekit.DeleteRoomRequest) (*livekit.DeleteRoomResponse, error) {
@@ -254,5 +258,44 @@ func TestMicrophoneLockDoesNotGrantAdditionalSources(t *testing.T) {
 	}
 	if !p.Permission.CanPublish || len(p.Permission.CanPublishSources) != 1 || p.Permission.CanPublishSources[0] != livekit.TrackSource_MICROPHONE {
 		t.Fatal("unlock did not restore original permissions")
+	}
+}
+
+func TestJoinRecreatesOnlyActiveMediaRooms(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	if w := moderationRequest(r, "/rooms/join", "guest-token", `{"room_id":"123-456-789","name":"guest"}`); w.Code != 200 || f.creates != 1 {
+		t.Fatalf("active room recreation: %d %s", w.Code, w.Body.String())
+	}
+	moderationRequest(r, "/rooms/123-456-789/close", "owner-token", `{}`)
+	if w := moderationRequest(r, "/rooms/join", "guest-token", `{"room_id":"123-456-789","name":"guest"}`); w.Code != 404 || f.creates != 1 {
+		t.Fatal("closed room was recreated")
+	}
+}
+
+func TestCloseWaitsForAnInflightJoinAndRoomLockIsReleased(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	started, finish := make(chan struct{}), make(chan struct{})
+	joined, closed := make(chan int, 1), make(chan int, 1)
+	f.onCreate = func() { close(started); <-finish }
+	go func() {
+		joined <- moderationRequest(r, "/rooms/join", "guest-token", `{"room_id":"123-456-789","name":"guest"}`).Code
+	}()
+	<-started
+	go func() { closed <- moderationRequest(r, "/rooms/123-456-789/close", "owner-token", `{}`).Code }()
+	close(finish)
+	if code := <-joined; code != 200 {
+		t.Fatalf("join status %d", code)
+	}
+	if code := <-closed; code != 200 {
+		t.Fatalf("close status %d", code)
+	}
+	if f.creates != 1 || f.deletes != 1 {
+		t.Fatal("unexpected media room lifecycle")
+	}
+	roomLifecycle.Lock()
+	remaining := len(roomLifecycle.entries)
+	roomLifecycle.Unlock()
+	if remaining != 0 {
+		t.Fatal("room lifecycle lock was not cleaned up")
 	}
 }
