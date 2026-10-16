@@ -104,6 +104,8 @@ func ownerRoom(c *gin.Context, allowClosed bool) (models.Room, bool) {
 }
 
 func CloseRoom(c *gin.Context) {
+	releaseRoom := lockRoomLifecycle(c.Param("room_id"))
+	defer releaseRoom()
 	room, ok := ownerRoom(c, true)
 	if !ok {
 		return

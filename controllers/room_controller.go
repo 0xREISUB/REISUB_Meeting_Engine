@@ -86,12 +86,25 @@ func JoinRoom(c *gin.Context) {
 		return
 	}
 
+	releaseRoom := lockRoomLifecycle(input.RoomID)
+	defer releaseRoom()
 	var room models.Room
 	if err := database.DB.Where("room_id = ? AND status = ?", input.RoomID, "active").First(&room).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Oda bulunamadı"})
 		return
 	}
 
+	ctx, service, err := moderationService(c.Request.Context(), room.RoomID)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
+		return
+	}
+	// Empty LiveKit rooms expire independently of the persisted room code.
+	// This is idempotent for an existing media session, and serialized with close.
+	if _, err = service.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: room.RoomID}); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Toplantı sunucusunda oda hazırlanamadı"})
+		return
+	}
 	user := c.MustGet("user").(models.User)
 	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), room.OwnerID == user.ID)
 	if err != nil {
