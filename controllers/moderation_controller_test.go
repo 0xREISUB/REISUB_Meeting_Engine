@@ -109,6 +109,10 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 	g.POST("", CreateRoom)
 	g.POST("/join", JoinRoom)
 	g.POST("/:room_id/close", CloseRoom)
+	g.GET("/:room_id/state", GetMeetingState)
+	g.POST("/:room_id/settings", UpdateMeetingSettings)
+	g.POST("/:room_id/screen-share/start", StartScreenShare)
+	g.POST("/:room_id/screen-share/stop", StopScreenShare)
 	g.POST("/:room_id/participants/:identity/microphone", SetParticipantMicrophone)
 	return r, f
 }
@@ -154,7 +158,7 @@ func TestMicrophoneLockPersistsAcrossRejoinAndPreservesCamera(t *testing.T) {
 			t.Fatal("locked participant can still publish mic")
 		}
 	}
-	if !p.Permission.CanPublish || !p.Permission.CanSubscribe || len(p.Permission.CanPublishSources) != 3 {
+	if !p.Permission.CanPublish || !p.Permission.CanSubscribe || len(p.Permission.CanPublishSources) != 1 || p.Permission.CanPublishSources[0] != livekit.TrackSource_CAMERA {
 		t.Fatal("camera or receive permissions were lost")
 	}
 	w := moderationRequest(r, "/rooms/join", "guest-token", `{"room_id":"123-456-789","name":"guest"}`)
