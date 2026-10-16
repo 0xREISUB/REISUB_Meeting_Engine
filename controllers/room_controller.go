@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/livekit"
 )
 
 var roomIDPattern = regexp.MustCompile(`^\d{3}-\d{3}-\d{3}$`)
@@ -47,13 +48,29 @@ func CreateRoom(c *gin.Context) {
 		RoomID:  newRoomID(),
 		Name:    strings.TrimSpace(input.Name),
 		OwnerID: user.ID,
-		Status:  "active",
+		Status:  "creating",
 	}
 	if err := database.DB.Create(&room).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda oluşturulamadı"})
 		return
 	}
 
+	ctx, service, err := moderationService(c.Request.Context(), room.RoomID)
+	if err != nil {
+		database.DB.Delete(&room)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
+		return
+	}
+	if _, err = service.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: room.RoomID}); err != nil {
+		database.DB.Delete(&room)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Toplantı sunucusunda oda oluşturulamadı"})
+		return
+	}
+	if err = database.DB.Model(&room).Update("status", "active").Error; err != nil {
+		service.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: room.RoomID})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda etkinleştirilemedi"})
+		return
+	}
 	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), true)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -106,15 +123,27 @@ func makeRoomResponse(room models.Room, userID uint, participant string, isHost 
 	grant := &auth.VideoGrant{
 		Room:           room.RoomID,
 		RoomJoin:       true,
-		RoomAdmin:      isHost,
+		RoomAdmin:      false,
 		CanPublish:     boolPtr(true),
 		CanSubscribe:   boolPtr(true),
 		CanPublishData: boolPtr(true),
 	}
+	locked, err := microphoneLocked(room.RoomID, userID)
+	if err != nil {
+		return roomResponse{}, fmt.Errorf("Mikrofon yetkisi okunamadı")
+	}
+	attrs := map[string]string{microphoneLockAttribute: "false"}
+	if locked {
+		grant.SetCanPublishSources(nonMicrophoneSources())
+		attrs[microphoneLockAttribute] = "true"
+		attrs[microphoneSourcesAttribute] = `{"can_publish":true,"sources":null}`
+	}
+	grant.SetCanUpdateOwnMetadata(false)
 	token, err := auth.NewAccessToken(apiKey, apiSecret).
 		SetIdentity(fmt.Sprintf("user-%d-%s", userID, uuid.NewString())).
 		SetName(participant).
-		SetValidFor(2 * time.Hour).
+		SetValidFor(5 * time.Minute).
+		SetAttributes(attrs).
 		SetVideoGrant(grant).
 		ToJWT()
 	if err != nil {
