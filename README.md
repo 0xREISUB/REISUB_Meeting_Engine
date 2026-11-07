@@ -84,6 +84,46 @@ To change settings, edit `config/stack.env` and run the last command. Restarts
 and container recreation keep the database volume. Do not use
 `docker compose down -v` unless you intentionally want to delete the database.
 
+## Web app and invite links
+
+The backend serves the Flutter web client on the same origin as the API, so
+the web app uses its own origin as the meeting server and needs no CORS or
+`--dart-define`. In production `https://meeting.reisub.xyz` (Nginx Proxy
+Manager, forward port `8080`) serves both; `https://api.meeting.reisub.xyz`
+keeps serving the same API for the mobile apps.
+
+- `WEB_DIR` (set to `/web` in Compose, mounted read-only from `./web`) holds the
+  output of `flutter build web --release`. Files are served only for GET/HEAD
+  requests that no API route matches, so the API is never shadowed. Without
+  `WEB_DIR` the backend serves no web files.
+- Caching: everything is `Cache-Control: no-cache` (revalidated on each load)
+  except `assets/` and `canvaskit/` (`public, max-age=3600`).
+- `GET /j/<room_id>` serves `invite/index.html` without authentication. The
+  page reads the code from the path and offers to join in the browser
+  (`/?room=<room_id>`) or download the app.
+- `PUBLIC_WEB_URL` (e.g. `https://meeting.reisub.xyz`) adds
+  `"invite_url": "<PUBLIC_WEB_URL>/j/<room_id>"` to `POST /rooms` and
+  `POST /rooms/join`. Without it the field is omitted.
+
+Browsers allow camera and microphone only on HTTPS origins, so always use the
+TLS host.
+
+### Deploying the web build
+
+From this repository, with the client repository next to it and Flutter
+installed locally:
+
+```sh
+scripts/deploy-web.sh vds            # ssh host; optional 2nd arg: client repo path
+```
+
+The script builds the client's `origin/main` in a temporary worktree (your
+client working tree is not touched), checks that the invite page is present,
+and uploads `build/web/` to `/root/projects/REISUB_Meeting_Engine/web` with
+rsync, replacing the old build only after every new file has arrived. No
+container restart is needed. Building on the server is avoided on purpose:
+Flutter builds are slow there and need the SDK.
+
 ## Room roles
 
 Every room has per-user roles, stored in `room_roles` and checked by the
