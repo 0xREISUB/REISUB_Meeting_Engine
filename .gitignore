@@ -35,6 +35,9 @@ go.work.sum
 # .vscode/
 reisub.db
 
+# Flutter web build uploaded by scripts/deploy-web.sh
+/web/
+
 # Local SQLite database and its journal files
 *.db-shm
 *.db-wal
