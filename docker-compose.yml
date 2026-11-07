@@ -94,8 +94,10 @@ services:
           api_key: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}"
           urls:
             - http://backend:${PORT:-8080}/livekit/webhook
+        # debug|info|warn|error; set LIVEKIT_LOG_LEVEL in stack.env and
+        # recreate livekit to change it.
         logging:
-          level: info
+          level: ${LIVEKIT_LOG_LEVEL:-info}
     command:
       - --bind
       - 0.0.0.0
