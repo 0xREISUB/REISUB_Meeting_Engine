@@ -27,6 +27,8 @@ func SetupRoutes(r *gin.Engine) {
 	r.POST("/register", controllers.Register)
 	r.POST("/login", controllers.Login)
 	r.POST("/logout", controllers.Logout)
+	// Anonymous guest session; no auth.
+	r.POST("/guest", controllers.CreateGuest)
 
 	// Called by LiveKit; authenticated by its signed JWT, not a user token.
 	r.POST("/livekit/webhook", controllers.LiveKitWebhook)
