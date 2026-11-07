@@ -1,16 +1,25 @@
 package routes
 
 import (
-	"reisub-backend/apierror"
+	"os"
+
 	"reisub-backend/controllers"
 	"reisub-backend/middleware"
+	"reisub-backend/webapp"
 
 	"github.com/gin-gonic/gin"
 )
 
 // SetupRoutes registers the public HTTP API.
+//
+// When WEB_DIR names a Flutter web build, it is served for every GET that no
+// API route matches, and GET /j/:room_id serves its invite page.
 func SetupRoutes(r *gin.Engine) {
-	r.NoRoute(apierror.NoRoute)
+	web := webapp.Handler{Dir: os.Getenv("WEB_DIR")}
+	r.NoRoute(web.NoRoute)
+	// Short invite links; public, no auth.
+	r.GET("/j/:room_id", web.Invite)
+	r.HEAD("/j/:room_id", web.Invite)
 
 	// Health check used by clients to verify the server address.
 	r.GET("/ping", controllers.Ping)
