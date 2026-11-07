@@ -77,6 +77,23 @@ docker compose --env-file config/stack.env up -d --no-deps livekit
 
 See [LiveKit ports and firewall documentation](https://docs.livekit.io/transport/self-hosting/ports-firewall/).
 
+LiveKit warns at startup when the host's UDP socket buffers are too small. Raise
+them once on the host (persistent across reboots), then recreate LiveKit:
+
+```sh
+printf 'net.core.rmem_max = 5000000\nnet.core.wmem_max = 5000000\n' > /etc/sysctl.d/90-livekit-udp.conf
+sysctl --system
+```
+
+### Logs
+
+Container logs rotate at 5 × 50 MB per container (`x-logging` in
+`docker-compose.yml`), so a verbose level cannot fill the disk. To debug media
+problems (ICE, PLI/keyframes, dynacast), set `LIVEKIT_LOG_LEVEL=debug` in
+`config/stack.env` and recreate LiveKit; switch back by setting it to `info`
+(or removing the line) and recreating LiveKit again. Both recreations interrupt
+active calls.
+
 ### Day-to-day operations
 
 Run these on the server from this directory:
