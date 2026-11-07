@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+	"github.com/twitchtv/twirp"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -25,6 +26,9 @@ type fakeModeration struct {
 	participants []*livekit.ParticipantInfo
 	updates      int
 	mutes        int
+	lists        int
+	gets         int
+	getErr       error
 	mutedTracks  []string
 	muteErr      error
 	creates      int
@@ -49,7 +53,20 @@ func (f *fakeModeration) DeleteRoom(_ context.Context, _ *livekit.DeleteRoomRequ
 	return &livekit.DeleteRoomResponse{}, f.deleteError
 }
 func (f *fakeModeration) ListParticipants(_ context.Context, _ *livekit.ListParticipantsRequest) (*livekit.ListParticipantsResponse, error) {
+	f.lists++
 	return &livekit.ListParticipantsResponse{Participants: f.participants}, nil
+}
+func (f *fakeModeration) GetParticipant(_ context.Context, r *livekit.RoomParticipantIdentity) (*livekit.ParticipantInfo, error) {
+	f.gets++
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	for _, p := range f.participants {
+		if p.Identity == r.Identity {
+			return p, nil
+		}
+	}
+	return nil, twirp.NotFoundError("participant not found")
 }
 func (f *fakeModeration) UpdateParticipant(_ context.Context, r *livekit.UpdateParticipantRequest) (*livekit.ParticipantInfo, error) {
 	f.updates++
@@ -102,6 +119,10 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 		t.Fatal(err)
 	}
 	f := &fakeModeration{participants: []*livekit.ParticipantInfo{{Identity: testParticipantIdentity, Permission: &livekit.ParticipantPermission{CanPublish: true, CanSubscribe: true, CanPublishData: true}, Tracks: []*livekit.TrackInfo{{Sid: "mic", Source: livekit.TrackSource_MICROPHONE}, {Sid: "camera", Source: livekit.TrackSource_CAMERA}}}}}
+	// Tests see every poll reach the fake unless they opt into caching.
+	oldInterval := shareCheckInterval
+	shareCheckInterval = 0
+	t.Cleanup(func() { shareCheckInterval = oldInterval; forgetShareCheck("123-456-789") })
 	oldFactory := newLiveKitRoomService
 	newLiveKitRoomService = func(string) liveKitRoomService { return f }
 	t.Cleanup(func() { newLiveKitRoomService = oldFactory })

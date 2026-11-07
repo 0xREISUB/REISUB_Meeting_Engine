@@ -128,6 +128,7 @@ func saveShare(room *models.Room, identity string, until int64) error {
 	}
 	room.ScreenShareIdentity = identity
 	room.ScreenShareLeaseUntil = until
+	forgetShareCheck(room.RoomID)
 	return nil
 }
 
@@ -169,6 +170,10 @@ func meetingState(room models.Room) gin.H {
 	return gin.H{"allow_participant_screen_share": room.AllowParticipantScreenShare, "screen_share_identity": room.ScreenShareIdentity}
 }
 
+// GetMeetingState is polled by every participant every 2 s. It only contacts
+// LiveKit when someone holds the screen-share slot and that holder has not
+// been confirmed within shareCheckInterval, and then asks about the holder
+// alone rather than listing the whole room.
 func GetMeetingState(c *gin.Context) {
 	release := lockRoomLifecycle(c.Param("room_id"))
 	defer release()
@@ -176,13 +181,33 @@ func GetMeetingState(c *gin.Context) {
 	if !ok {
 		return
 	}
-	ctx, svc, ps, ok := listRoomParticipants(c, room)
-	if !ok {
+	if room.ScreenShareIdentity == "" || shareRecentlyVerified(room) {
+		c.JSON(http.StatusOK, meetingState(room))
+		return
+	}
+	ctx, svc, err := connectLiveKit(c.Request.Context(), room.RoomID)
+	if err != nil {
+		apierror.Respond(c, http.StatusServiceUnavailable, apierror.MediaServerNotConfigured, "Toplantı sunucusu yapılandırılmamış")
+		return
+	}
+	// releaseStaleShare only inspects the holder, so fetching that one
+	// participant is equivalent to listing the room. NotFound (participant
+	// or media room gone) means the holder has left.
+	var ps []*livekit.ParticipantInfo
+	holder, err := svc.GetParticipant(ctx, &livekit.RoomParticipantIdentity{Room: room.RoomID, Identity: room.ScreenShareIdentity})
+	switch {
+	case err == nil:
+		ps = []*livekit.ParticipantInfo{holder}
+	case !isTwirpNotFound(err):
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Katılımcılar alınamadı")
 		return
 	}
 	if err := releaseStaleShare(ctx, svc, &room, ps); err != nil {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Paylaşım durumu güncellenemedi")
 		return
+	}
+	if room.ScreenShareIdentity != "" {
+		markShareVerified(room)
 	}
 	c.JSON(http.StatusOK, meetingState(room))
 }

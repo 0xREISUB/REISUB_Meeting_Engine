@@ -81,6 +81,7 @@ func CloseRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Oda katılıma kapatıldı fakat mevcut bağlantılar sonlandırılamadı. Tekrar deneyin.")
 		return
 	}
+	forgetShareCheck(room.RoomID)
 	if err = database.DB.Model(&room).Update("status", models.RoomStatusClosed).Error; err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapandı fakat durum kaydedilemedi. Tekrar deneyin.")
 		return

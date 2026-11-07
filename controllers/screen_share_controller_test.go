@@ -338,3 +338,59 @@ func TestRevokeToleratesUnpublishedTracksAndReportsMuteFailures(t *testing.T) {
 		t.Fatal("slot not released")
 	}
 }
+
+func TestStatePollSkipsLiveKitWhenNobodyShares(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	for i := 0; i < 5; i++ {
+		w := stateRequest(r, "guest-token")
+		if w.Code != 200 || w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	if f.lists != 0 || f.gets != 0 {
+		t.Fatalf("idle polls reached LiveKit: %d lists, %d gets", f.lists, f.gets)
+	}
+}
+
+func TestStatePollAsksOnlyForHolderAndReusesRecentConfirmation(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	shareCheckInterval = time.Hour
+	addScreenOwner(f)
+	shareRequest(r, "start", "owner-token", ownerIdentity)
+	publishScreen(f.participants[1], livekit.TrackSource_SCREEN_SHARE)
+	f.lists, f.gets = 0, 0
+	want := `{"allow_participant_screen_share":false,"screen_share_identity":"` + ownerIdentity + `"}`
+	for _, token := range []string{"guest-token", "owner-token", "guest-token", "owner-token"} {
+		if w := stateRequest(r, token); w.Code != 200 || w.Body.String() != want {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	if f.lists != 0 || f.gets != 1 {
+		t.Fatalf("got %d lists, %d gets; want 0 lists, 1 get", f.lists, f.gets)
+	}
+	// A slot change invalidates the confirmation immediately.
+	if w := shareRequest(r, "stop", "owner-token", ownerIdentity); w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	if w := stateRequest(r, "guest-token"); w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+		t.Fatal("stale cached holder reported after stop:", w.Body.String())
+	}
+}
+
+func TestStatePollReleasesHolderWhoLeftTheRoom(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	addScreenOwner(f)
+	shareRequest(r, "start", "owner-token", ownerIdentity)
+	f.participants = f.participants[:1] // the owner disconnected within the grace period
+	if w := stateRequest(r, "guest-token"); w.Code != 200 || w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func TestStatePollReportsLiveKitFailure(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	addScreenOwner(f)
+	shareRequest(r, "start", "owner-token", ownerIdentity)
+	f.getErr = errors.New("network unavailable")
+	assertAPIError(t, stateRequest(r, "guest-token"), 502, apierror.MediaServerError, "Katılımcılar alınamadı")
+}
