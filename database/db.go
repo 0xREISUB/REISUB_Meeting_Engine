@@ -30,7 +30,7 @@ func ConnectDB() {
 		log.Fatal("Veritabanına bağlanılamadı: " + err.Error())
 	}
 
-	if err := DB.AutoMigrate(&models.User{}, &models.Room{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}); err != nil {
+	if err := Migrate(DB); err != nil {
 		log.Fatal("Veritabanı tabloları güncellenemedi: " + err.Error())
 	}
 
@@ -39,6 +39,26 @@ func ConnectDB() {
 	} else if count > 0 {
 		log.Printf("warning: %d user(s) have leading/trailing whitespace in their nick and cannot log in with trimmed input; migrate them manually", count)
 	}
+}
+
+// Migrate creates or updates all tables. The first time the room_roles table
+// is created, every existing room's OwnerID becomes an owner row; this runs
+// exactly once, in the same transaction as the table creation, so later
+// role changes are never overwritten by a restart.
+func Migrate(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.RoomRole{}) {
+		err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.AutoMigrate(&models.Room{}, &models.RoomRole{}); err != nil {
+				return err
+			}
+			return tx.Exec(`INSERT INTO room_roles (room_id, user_id, role, granted_at, granted_by, suspended, acting, previous_role)
+				SELECT room_id, owner_id, ?, created_at, 0, false, false, '' FROM rooms WHERE owner_id <> 0`, models.RoleOwner).Error
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return db.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomRole{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{})
 }
 
 // CountUntrimmedNicks counts users whose stored nick has leading or trailing
