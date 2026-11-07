@@ -117,40 +117,119 @@ LiveKit. On self-hosted LiveKit, existing tokens cannot be revoked immediately.
 An old token carrying earlier microphone permissions can therefore remain valid
 until it expires; freshly requested join tokens always apply the stored lock.
 
-### Ekran paylaşımı ve toplantı ayarları
+### Screen sharing and meeting settings
 
-Yeni odalarda `allow_participant_screen_share` varsayılan olarak `false` olur.
-Oda sahibi her zaman paylaşım isteyebilir; diğer katılımcılar yalnızca oda sahibi
-bu ayarı açarsa paylaşabilir. İzin tekrar kapatılırsa mevcut katılımcı paylaşımı
-sunucudan durdurulur. Aynı odada oda sahibi dahil yalnızca bir oturum paylaşabilir.
+`allow_participant_screen_share` defaults to `false` for new rooms. The owner
+may always request to share; other participants may share only when the owner
+enables the setting. Turning it off again stops the current participant's share
+from the server. Only one session per room, the owner included, may share at a
+time.
 
-Kimlik doğrulamalı API:
+Authenticated API:
 
-- `GET /rooms/:room_id/state`: paylaşım izni ve `screen_share_identity`.
-- `POST /rooms/:room_id/settings`: oda sahibinden
+- `GET /rooms/:room_id/state`: the sharing setting and `screen_share_identity`.
+- `POST /rooms/:room_id/settings`: owner only,
   `{"allow_participant_screen_share": true|false}`.
 - `POST /rooms/:room_id/screen-share/start`: `{"identity":"user-ID-UUID"}`;
-  yalnızca isteği yapan kullanıcının bağlı oturumu izin alır. Dolu oda `409` döner.
-- `POST /rooms/:room_id/screen-share/stop`: aynı kimlikle paylaşımı durdurur.
+  only a connected session of the requesting user is granted. Returns `409` if
+  another session holds the slot.
+- `POST /rooms/:room_id/screen-share/stop`: stops the share for that identity
+  (the holder or the room owner).
 
-Katılım JWT'leri yalnızca kamera ve (kilitli değilse) mikrofon kaynağına izin verir.
-Ekran ve ekran sesi izni yalnızca seçilen bağlı oturuma LiveKit `UpdateParticipant`
-üzerinden verilir. Mikrofon kilidi/açma işlemleri bu ekran kısıtlamasını korur.
-Oda başına kilit aynı backend sürecinde katılım, kapanış, mikrofon moderasyonu ve
-paylaşım değişikliklerini sıraya alır; mevcut dağıtım tek backend örneği kullanır.
-Birden fazla backend örneğine geçmeden önce dağıtık kilit/atomik rezervasyon gerekir.
+All four return `{"allow_participant_screen_share": bool, "screen_share_identity": string}`.
 
-Kaybolan oturumun rezervasyonu sonraki durum/başlatma isteğinde temizlenir.
-İlk yayına başlamak için 30 saniyelik süre vardır; yayın sürdüğü sürece süre dolmaz.
-Yayını durdurma isteği izinleri hemen geri alır. İstemciler iki saniyede bir durumu
-kontrol eder; bağlantı/yayın beklenmedik şekilde biterse rezervasyon otomatik temizlenir.
-Önce Engine güncellenmeli, ardından yeni Linux/Android istemcileri kullanılmalıdır.
-Eski sürümden verilmiş JWT'ler önceki yetkilerini en çok mevcut beş dakikalık ömürleri
-boyunca taşıyabilir; dağıtım sonrası istemciler toplantıdan çıkıp yeniden katılmalıdır.
+Join JWTs only allow the camera and, unless locked, the microphone. Screen and
+screen-audio sources are granted only to the selected connected session through
+LiveKit `UpdateParticipant`. Whenever that grant is revoked (setting turned off,
+owner stops the share, the slot moves to another session, or a stale
+reservation is released) the backend also server-mutes the participant's
+`SCREEN_SHARE` and `SCREEN_SHARE_AUDIO` tracks, so a client that ignores the
+permission change cannot keep streaming. Microphone lock/unlock preserves the
+screen restriction.
 
-İstemci ekran yayınına ana görüntüde öncelik verir. Masaüstünde tam ekran düğmesi
-katılımcı şeridini gizler. Paylaşımda fare tekerleğiyle veya telefonda iki parmakla
-1–6 kat yakınlaştırma ve sıfırlama bulunur. Android istemci, kullanıcı ekran yakalama
-iznini verdikten sonra `mediaProjection` ön plan servisi başlatır; bu sıra
-[LiveKit Flutter ekran paylaşımı akışını](https://github.com/livekit/client-sdk-flutter#screen-sharing)
-izler. Paylaşım bittiğinde ya da toplantıdan çıkıldığında servis kapanır.
+A per-room lock serializes joins, closure, microphone moderation and sharing
+changes within one backend process; the current deployment runs a single backend
+instance. A distributed lock or atomic reservation is required before running
+several backend instances.
+
+A lost session's reservation is cleared on the next state or start request. A
+new holder has 30 seconds to start publishing; afterwards the slot is held only
+while an unmuted `SCREEN_SHARE` video track exists (screen audio alone does not
+hold it). Clients poll the state every two seconds. The state endpoint contacts
+LiveKit only while someone holds the slot, asks about the holder alone, and
+reuses a confirmation for one poll interval, so a vanished holder is reported at
+most about two seconds late.
+
+Deploy the Engine before the new Linux/Android clients. JWTs issued by an older
+version may carry their earlier permissions for at most their five-minute
+lifetime; participants should leave and rejoin after a deployment.
+
+The client gives the screen share priority in the main view. On desktop a
+full-screen button hides the participant strip. Shares can be zoomed 1–6× with
+the mouse wheel or a two-finger pinch on phones, and reset. The Android client
+starts a `mediaProjection` foreground service after the user grants screen
+capture permission, following the
+[LiveKit Flutter screen sharing flow](https://github.com/livekit/client-sdk-flutter#screen-sharing).
+The service stops when sharing ends or the user leaves the meeting.
+
+## Accounts
+
+`POST /register` and `POST /login` take `{"nick", "password"}`. The nick is
+trimmed of leading/trailing whitespace before it is stored or looked up and must
+not be blank; the password is used verbatim and may be at most 72 bytes. At
+startup the backend logs a warning if any stored nick still has surrounding
+whitespace (such accounts cannot log in with trimmed input and need a manual
+migration).
+
+## Errors
+
+Every error response is JSON:
+
+```json
+{"error": "Başka bir katılımcı ekranını paylaşıyor", "code": "screen_share_busy"}
+```
+
+`error` is a human-readable (Turkish) message that clients may show verbatim.
+`code` is stable and meant for programs: branch on it or localize from it. Codes
+are never renamed; new ones may be added. A `401` from any `/rooms` route means
+the session token is missing or expired.
+
+| Code | Meaning |
+| --- | --- |
+| `invalid_request` | Body missing or malformed |
+| `not_found` | Unknown route |
+| `internal_error` | Unexpected server failure (usually the database) |
+| `missing_credentials` | Nick or password missing, or nick blank after trimming |
+| `password_too_long` | Password longer than 72 bytes |
+| `nick_taken` | Nick already registered |
+| `user_not_found` | No account with this nick |
+| `wrong_password` | Password does not match |
+| `auth_required` | No session token sent (401) |
+| `invalid_token` | Session token unknown or expired (401 on `/rooms`) |
+| `name_required` | Display name missing |
+| `invalid_room_request` | Display name or `NNN-NNN-NNN` room code missing |
+| `room_not_found` | Room does not exist or is not active |
+| `room_not_active` | Room is closing or closed |
+| `not_room_owner` | Only the room owner may do this |
+| `invalid_identity` | Malformed participant identity |
+| `identity_not_owned` | The identity belongs to another user |
+| `participant_not_found` | Identity not connected to the media room |
+| `media_server_not_configured` | LiveKit credentials or URL missing |
+| `media_server_error` | A LiveKit call failed; retry |
+| `screen_share_not_allowed` | Owner has not allowed participants to share |
+| `screen_share_busy` | Another session holds the screen-share slot |
+| `publish_not_permitted` | Session may not publish media |
+| `invalid_message` | Chat message empty or over 1000 characters |
+
+The admin panel (`cmd/manager`, `management/`) is a separate service and keeps
+its own `{"error"}` responses.
+
+## Development
+
+```sh
+gofmt -l .
+go vet ./...
+go test -race ./...
+```
+
+CI runs the same checks plus `go mod tidy -diff` on every push and pull request.
