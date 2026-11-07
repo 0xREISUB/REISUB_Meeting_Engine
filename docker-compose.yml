@@ -28,6 +28,10 @@ services:
       # Nginx Proxy Manager reaches the backend from a Docker network; trust
       # its X-Forwarded-For so per-IP limits see the real client.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+      # Strict-Transport-Security max-age in seconds on HTTPS responses
+      # (0 disables). Start short; raise only deliberately, HSTS cannot be
+      # withdrawn quickly.
+      HSTS_MAX_AGE: ${HSTS_MAX_AGE:-300}
       # Guest sessions: token lifetime, and how long an unused guest is kept
       # (Go durations; empty uses the defaults 720h and 336h).
       GUEST_TOKEN_TTL: ${GUEST_TOKEN_TTL:-}

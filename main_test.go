@@ -35,3 +35,30 @@ func TestClientIPTrustsOnlyConfiguredProxies(t *testing.T) {
 		t.Fatal("empty TRUSTED_PROXIES must trust nobody")
 	}
 }
+
+func TestHSTSOnlyOnHTTPSAndOnlyWhenConfigured(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	header := func(maxAge, proto string) string {
+		r := gin.New()
+		r.Use(hstsMiddleware(maxAge))
+		r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		if proto != "" {
+			req.Header.Set("X-Forwarded-Proto", proto)
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Header().Get("Strict-Transport-Security")
+	}
+	if got := header("300", "https"); got != "max-age=300" {
+		t.Fatalf("HTTPS: %q", got)
+	}
+	if got := header("300", "http"); got != "" {
+		t.Fatalf("HTTP got HSTS: %q", got)
+	}
+	for _, off := range []string{"", "0", "-5", "abc"} {
+		if got := header(off, "https"); got != "" {
+			t.Fatalf("HSTS_MAX_AGE=%q sent %q", off, got)
+		}
+	}
+}
