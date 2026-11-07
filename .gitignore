@@ -34,3 +34,7 @@ go.work.sum
 # .idea/
 # .vscode/
 reisub.db
+
+# Local SQLite database and its journal files
+*.db-shm
+*.db-wal
