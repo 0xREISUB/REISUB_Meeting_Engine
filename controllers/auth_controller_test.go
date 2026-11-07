@@ -85,3 +85,16 @@ func quote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+func TestLogoutInvalidatesToken(t *testing.T) {
+	r := authTestRouter(t)
+	jsonRequest(r, http.MethodPost, "/register", "", `{"nick":"dan","password":"pw"}`)
+	w := jsonRequest(r, http.MethodPost, "/login", "", `{"nick":"dan","password":"pw"}`)
+	var body struct{ Token string }
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if w := jsonRequest(r, http.MethodPost, "/logout", body.Token, ""); w.Code != http.StatusOK {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	assertAPIError(t, jsonRequest(r, http.MethodPost, "/logout", body.Token, ""), http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
+	assertAPIError(t, jsonRequest(r, http.MethodPost, "/logout", "", ""), http.StatusBadRequest, apierror.InvalidToken, "Token geçersiz")
+}
