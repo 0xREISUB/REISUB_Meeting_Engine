@@ -2,12 +2,20 @@ package routes
 
 import (
 	"os"
+	"time"
 
 	"reisub-backend/controllers"
 	"reisub-backend/middleware"
 	"reisub-backend/webapp"
 
 	"github.com/gin-gonic/gin"
+)
+
+// POST /guest is limited to guestsPerWindow new sessions per client IP per
+// guestWindow, enough for a group joining from one office or school network.
+const (
+	guestsPerWindow = 30
+	guestWindow     = 10 * time.Minute
 )
 
 // SetupRoutes registers the public HTTP API.
@@ -28,7 +36,7 @@ func SetupRoutes(r *gin.Engine) {
 	r.POST("/login", controllers.Login)
 	r.POST("/logout", controllers.Logout)
 	// Anonymous guest session; no auth.
-	r.POST("/guest", controllers.CreateGuest)
+	r.POST("/guest", middleware.RateLimit(guestsPerWindow, guestWindow), controllers.CreateGuest)
 
 	// Called by LiveKit; authenticated by its signed JWT, not a user token.
 	r.POST("/livekit/webhook", controllers.LiveKitWebhook)
