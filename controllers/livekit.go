@@ -20,6 +20,7 @@ type liveKitRoomService interface {
 	CreateRoom(context.Context, *livekit.CreateRoomRequest) (*livekit.Room, error)
 	DeleteRoom(context.Context, *livekit.DeleteRoomRequest) (*livekit.DeleteRoomResponse, error)
 	ListParticipants(context.Context, *livekit.ListParticipantsRequest) (*livekit.ListParticipantsResponse, error)
+	GetParticipant(context.Context, *livekit.RoomParticipantIdentity) (*livekit.ParticipantInfo, error)
 	UpdateParticipant(context.Context, *livekit.UpdateParticipantRequest) (*livekit.ParticipantInfo, error)
 	MutePublishedTrack(context.Context, *livekit.MuteRoomTrackRequest) (*livekit.MuteRoomTrackResponse, error)
 }
