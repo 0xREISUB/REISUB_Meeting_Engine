@@ -29,7 +29,8 @@ echo "Building $(git -C "$work/src" log --oneline -1)"
 (cd "$work/src" && python3 tool/build_web.py)
 invite="$work/src/build/web/invite/index.html"
 test -f "$invite" || { echo "invite page missing from build" >&2; exit 1; }
-if grep -q "__REISUB_" "$invite"; then
+# The page's own script mentions the prefix too; only unfilled meta values count.
+if grep -q 'content="__REISUB_' "$invite"; then
 	echo "invite page still has unfilled placeholders; check app.env" >&2
 	exit 1
 fi
