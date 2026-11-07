@@ -1,5 +1,13 @@
 name: reisub_meeting_engine
 
+# Rotate container logs so debug logging cannot fill the disk
+# (at most 5 x 50 MB per container).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 50m
+    max-file: "5"
+
 services:
   backend:
     build:
@@ -7,6 +15,7 @@ services:
       dockerfile: Dockerfile
       target: backend
     restart: unless-stopped
+    logging: *logging
     environment:
       GIN_MODE: release
       PORT: ${PORT:-8080}
@@ -97,6 +106,7 @@ services:
       - "7881:7881"
       - "7882:7882/udp"
     restart: unless-stopped
+    logging: *logging
 
 volumes:
   backend_data:
