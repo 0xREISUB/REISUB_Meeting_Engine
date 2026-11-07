@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -73,6 +74,29 @@ func setScreenPermission(ctx context.Context, svc liveKitRoomService, roomID str
 	return err
 }
 
+// revokeScreenShare removes both screen sources from p and server-mutes every
+// SCREEN_SHARE and SCREEN_SHARE_AUDIO track it still publishes, so a client
+// that ignores the permission change cannot keep sharing. LiveKit's
+// RoomService has no unpublish call; the mute stops the media immediately
+// and well-behaved clients unpublish when they lose the permission.
+func revokeScreenShare(ctx context.Context, svc liveKitRoomService, roomID string, p *livekit.ParticipantInfo) error {
+	if err := setScreenPermission(ctx, svc, roomID, p, false); err != nil {
+		return err
+	}
+	for _, track := range p.Tracks {
+		if !isScreenSource(track.Source) {
+			continue
+		}
+		// Mute even tracks reported as muted: a client-side mute can be undone
+		// by the client. NotFound means the track is already unpublished.
+		_, err := svc.MutePublishedTrack(ctx, &livekit.MuteRoomTrackRequest{Room: roomID, Identity: p.Identity, TrackSid: track.Sid, Muted: true})
+		if err != nil && !isTwirpNotFound(err) {
+			return fmt.Errorf("mute %s track: %w", track.Source, err)
+		}
+	}
+	return nil
+}
+
 // activeRoom loads the active room named in the path. It writes the error
 // response itself and reports whether to continue.
 func activeRoom(c *gin.Context) (models.Room, bool) {
@@ -107,8 +131,22 @@ func saveShare(room *models.Room, identity string, until int64) error {
 	return nil
 }
 
+// isActivelySharing reports whether p publishes an unmuted screen video
+// track. SCREEN_SHARE_AUDIO alone does not count: screen audio only
+// accompanies a screen share, so an audio-only leftover must not hold the
+// room's slot (it is muted when the slot is released).
+func isActivelySharing(p *livekit.ParticipantInfo) bool {
+	for _, t := range p.Tracks {
+		if t.Source == livekit.TrackSource_SCREEN_SHARE && !t.Muted {
+			return true
+		}
+	}
+	return false
+}
+
 // releaseStaleShare frees the slot when its holder has left the room, or has
-// no live screen track after the start grace period.
+// no live screen video track after the start grace period. Any screen tracks
+// the holder still publishes (e.g. SCREEN_SHARE_AUDIO) are muted.
 func releaseStaleShare(ctx context.Context, svc liveKitRoomService, room *models.Room, ps []*livekit.ParticipantInfo) error {
 	if room.ScreenShareIdentity == "" {
 		return nil
@@ -117,15 +155,10 @@ func releaseStaleShare(ctx context.Context, svc liveKitRoomService, room *models
 		if p.Identity != room.ScreenShareIdentity {
 			continue
 		}
-		for _, t := range p.Tracks {
-			if t.Source == livekit.TrackSource_SCREEN_SHARE && !t.Muted {
-				return nil
-			}
-		}
-		if time.Now().Unix() < room.ScreenShareLeaseUntil {
+		if isActivelySharing(p) || time.Now().Unix() < room.ScreenShareLeaseUntil {
 			return nil
 		}
-		if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
+		if err := revokeScreenShare(ctx, svc, room.RoomID, p); err != nil {
 			return err
 		}
 	}
@@ -183,7 +216,7 @@ func UpdateMeetingSettings(c *gin.Context) {
 			}
 			for _, p := range ps {
 				if p.Identity == room.ScreenShareIdentity {
-					if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
+					if err := revokeScreenShare(ctx, svc, room.RoomID, p); err != nil {
 						apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "İzin kapatıldı fakat paylaşım durdurulamadı. Tekrar deneyin.")
 						return
 					}
@@ -255,7 +288,7 @@ func StartScreenShare(c *gin.Context) {
 	// Revoke every other publisher before granting the selected one.
 	for _, p := range ps {
 		if p.Identity != input.Identity {
-			if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
+			if err := revokeScreenShare(ctx, svc, room.RoomID, p); err != nil {
 				apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Paylaşım izinleri güncellenemedi")
 				return
 			}
@@ -302,7 +335,7 @@ func StopScreenShare(c *gin.Context) {
 	}
 	for _, p := range ps {
 		if p.Identity == input.Identity {
-			if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
+			if err := revokeScreenShare(ctx, svc, room.RoomID, p); err != nil {
 				apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Paylaşım durdurulamadı")
 				return
 			}

@@ -25,6 +25,8 @@ type fakeModeration struct {
 	participants []*livekit.ParticipantInfo
 	updates      int
 	mutes        int
+	mutedTracks  []string
+	muteErr      error
 	creates      int
 	deletes      int
 	deleteError  error
@@ -70,6 +72,20 @@ func (f *fakeModeration) MutePublishedTrack(_ context.Context, r *livekit.MuteRo
 		return nil, errors.New("remote unmute must never be used")
 	}
 	f.mutes++
+	if f.muteErr != nil {
+		return nil, f.muteErr
+	}
+	f.mutedTracks = append(f.mutedTracks, r.TrackSid)
+	for _, p := range f.participants {
+		if p.Identity != r.Identity {
+			continue
+		}
+		for _, track := range p.Tracks {
+			if track.Sid == r.TrackSid {
+				track.Muted = true
+			}
+		}
+	}
 	return &livekit.MuteRoomTrackResponse{}, nil
 }
 
