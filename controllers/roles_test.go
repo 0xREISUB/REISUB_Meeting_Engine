@@ -217,3 +217,118 @@ func TestJoinReportsRoleAndPublishesItAsAttribute(t *testing.T) {
 		}
 	}
 }
+
+func roleRequest(r *gin.Engine, token string, target uint, role string) *httptest.ResponseRecorder {
+	return moderationRequest(r, "/rooms/123-456-789/participants/"+identityFor(target)+"/role", token, `{"role":"`+role+`"}`)
+}
+
+func storedRole(t *testing.T, userID uint) string {
+	t.Helper()
+	role, err := effectiveRole("123-456-789", userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return role
+}
+
+func TestOnlyOwnersChangeRoles(t *testing.T) {
+	r, _ := rolesTestRouter(t)
+	for _, actor := range []uint{modID, 22} {
+		assertAPIError(t, roleRequest(r, tokenFor(actor), 22, "moderator"), 403, apierror.OwnerRequired, "Bu işlem yalnızca oda sahiplerine açık")
+		assertAPIError(t, moderationRequest(r, "/rooms/123-456-789/transfer-ownership", tokenFor(actor), `{"identity":"`+identityFor(22)+`"}`),
+			403, apierror.OwnerRequired, "Bu işlem yalnızca oda sahiplerine açık")
+	}
+	assertAPIError(t, roleRequest(r, "owner-token", 22, "admin"), 400, apierror.InvalidRole, "Geçerli bir rol gerekli")
+	assertAPIError(t, moderationRequest(r, "/rooms/123-456-789/participants/bogus/role", "owner-token", `{"role":"moderator"}`),
+		400, apierror.InvalidIdentity, "Katılımcı kimliği geçersiz")
+	assertAPIError(t, roleRequest(r, "owner-token", 999, "moderator"), 404, apierror.ParticipantNotFound, "Kullanıcı bulunamadı")
+}
+
+func TestOwnerPromotesAndDemotesWithLiveAttribute(t *testing.T) {
+	r, f := rolesTestRouter(t)
+	guest := f.participants[0]
+	w := roleRequest(r, "owner-token", 22, "moderator")
+	if w.Code != 200 || w.Body.String() != `{"identity":"`+identityFor(22)+`","role":"moderator"}` {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	row, _ := roleRow(database.DB, "123-456-789", 22)
+	if row == nil || row.Role != models.RoleModerator || row.GrantedBy != 11 || guest.Attributes[roleAttribute] != "moderator" {
+		t.Fatalf("promotion not stored or published: %+v %v", row, guest.Attributes)
+	}
+	if w := roleRequest(r, "owner-token", 22, "participant"); w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	if storedRole(t, 22) != models.RoleParticipant || guest.Attributes[roleAttribute] != "" {
+		t.Fatal("demotion not stored or published")
+	}
+	// Owners may change other owners' roles.
+	if w := roleRequest(r, "owner-token", owner2ID, "moderator"); w.Code != 200 || storedRole(t, owner2ID) != models.RoleModerator {
+		t.Fatal("owner could not demote another owner", w.Code)
+	}
+}
+
+func TestPromotionToOwnerLiftsMicrophoneLock(t *testing.T) {
+	r, f := rolesTestRouter(t)
+	if w := micRequest(r, "owner-token", 22, `{"locked":true}`); w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	if w := roleRequest(r, "owner-token", 22, "owner"); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	locked, _ := microphoneLocked("123-456-789", 22)
+	guest := f.participants[0]
+	if locked || !hasSource(guest, livekit.TrackSource_MICROPHONE) || guest.Attributes[microphoneLockAttribute] != "false" || guest.Attributes[roleAttribute] != "owner" {
+		t.Fatalf("lock survived promotion: locked=%v attrs=%v", locked, guest.Attributes)
+	}
+}
+
+func TestOwnerStepsDownOnlyWhileAnotherOwnerIsConnected(t *testing.T) {
+	t.Run("connected co-owner", func(t *testing.T) {
+		r, _ := rolesTestRouter(t)
+		if w := roleRequest(r, "owner-token", 11, "moderator"); w.Code != 200 {
+			t.Fatal("step down with a connected co-owner:", w.Code, w.Body.String())
+		}
+		assertAPIError(t, roleRequest(r, tokenFor(owner2ID), owner2ID, "participant"), 409, apierror.LastOwner, "Toplantıda bağlı başka bir oda sahibi kalmalı")
+	})
+	t.Run("co-owner only on record", func(t *testing.T) {
+		r, f := rolesTestRouter(t)
+		f.participants = f.participants[:4] // owner2 disconnects
+		assertAPIError(t, roleRequest(r, "owner-token", 11, "moderator"), 409, apierror.LastOwner, "Toplantıda bağlı başka bir oda sahibi kalmalı")
+	})
+}
+
+func TestDemotedModeratorLosesShareWhileParticipantSharingIsOff(t *testing.T) {
+	r, f := rolesTestRouter(t)
+	shareRequest(r, "start", tokenFor(modID), identityFor(modID))
+	publishScreen(f.participants[2], livekit.TrackSource_SCREEN_SHARE)
+	if w := roleRequest(r, "owner-token", modID, "participant"); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var room models.Room
+	database.DB.First(&room)
+	if room.ScreenShareIdentity != "" || hasSource(f.participants[2], livekit.TrackSource_SCREEN_SHARE) {
+		t.Fatal("demoted moderator kept sharing although participants may not share")
+	}
+}
+
+func TestTransferOwnership(t *testing.T) {
+	r, f := rolesTestRouter(t)
+	path := "/rooms/123-456-789/transfer-ownership"
+	assertAPIError(t, moderationRequest(r, path, "owner-token", `{"identity":"`+identityFor(11)+`"}`), 400, apierror.InvalidRequest, "Sahipliği kendinize devredemezsiniz")
+	f.participants[0].Identity = "user-22-00000000-0000-0000-0000-000000000000" // guest reconnected elsewhere
+	assertAPIError(t, moderationRequest(r, path, "owner-token", `{"identity":"`+identityFor(22)+`"}`), 404, apierror.ParticipantNotFound, "Katılımcı artık odada değil")
+	f.participants[0].Identity = identityFor(22)
+
+	w := moderationRequest(r, path, "owner-token", `{"identity":"`+identityFor(22)+`"}`)
+	if w.Code != 200 || w.Body.String() != `{"caller_role":"moderator","identity":"`+identityFor(22)+`","role":"owner"}` {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if storedRole(t, 22) != models.RoleOwner || storedRole(t, 11) != models.RoleModerator {
+		t.Fatal("roles not swapped")
+	}
+	if f.participants[0].Attributes[roleAttribute] != "owner" || f.participants[1].Attributes[roleAttribute] != "moderator" {
+		t.Fatal("attributes not published")
+	}
+	// The former owner is now a moderator.
+	assertAPIError(t, roleRequest(r, "owner-token", modID, "participant"), 403, apierror.OwnerRequired, "Bu işlem yalnızca oda sahiplerine açık")
+}

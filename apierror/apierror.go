@@ -62,6 +62,10 @@ const (
 	// TargetProtected: the target is an owner, or a moderator and the caller
 	// is a moderator.
 	TargetProtected Code = "target_protected"
+	// InvalidRole: role must be "owner", "moderator" or "participant".
+	InvalidRole Code = "invalid_role"
+	// LastOwner: an owner may step down only while another owner is connected.
+	LastOwner Code = "last_owner"
 	// InvalidIdentity: the participant identity is malformed.
 	InvalidIdentity Code = "invalid_identity"
 	// IdentityNotOwned: the identity belongs to another user.
