@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
 
@@ -77,7 +78,7 @@ func setScreenPermission(ctx context.Context, svc liveKitRoomService, roomID str
 func activeRoom(c *gin.Context) (models.Room, bool) {
 	var room models.Room
 	if err := database.DB.Where("room_id = ? AND status = ?", c.Param("room_id"), models.RoomStatusActive).First(&room).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Oda bulunamadı veya kapatıldı"})
+		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı veya kapatıldı")
 		return room, false
 	}
 	return room, true
@@ -86,12 +87,12 @@ func activeRoom(c *gin.Context) (models.Room, bool) {
 func listRoomParticipants(c *gin.Context, room models.Room) (context.Context, liveKitRoomService, []*livekit.ParticipantInfo, bool) {
 	ctx, svc, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
+		apierror.Respond(c, http.StatusServiceUnavailable, apierror.MediaServerNotConfigured, "Toplantı sunucusu yapılandırılmamış")
 		return ctx, svc, nil, false
 	}
 	list, err := svc.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: room.RoomID})
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Katılımcılar alınamadı"})
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Katılımcılar alınamadı")
 		return ctx, svc, nil, false
 	}
 	return ctx, svc, list.Participants, true
@@ -147,7 +148,7 @@ func GetMeetingState(c *gin.Context) {
 		return
 	}
 	if err := releaseStaleShare(ctx, svc, &room, ps); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım durumu güncellenemedi"})
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Paylaşım durumu güncellenemedi")
 		return
 	}
 	c.JSON(http.StatusOK, meetingState(room))
@@ -164,12 +165,12 @@ func UpdateMeetingSettings(c *gin.Context) {
 		Allowed *bool `json:"allow_participant_screen_share"`
 	}
 	if c.ShouldBindJSON(&input) != nil || input.Allowed == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Paylaşım izni gerekli"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidRequest, "Paylaşım izni gerekli")
 		return
 	}
 	// Save the restriction before touching media so failures never admit new guests.
 	if err := database.DB.Model(&room).Update("allow_participant_screen_share", *input.Allowed).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ayar kaydedilemedi"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Ayar kaydedilemedi")
 		return
 	}
 	room.AllowParticipantScreenShare = *input.Allowed
@@ -183,13 +184,13 @@ func UpdateMeetingSettings(c *gin.Context) {
 			for _, p := range ps {
 				if p.Identity == room.ScreenShareIdentity {
 					if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
-						c.JSON(http.StatusBadGateway, gin.H{"error": "İzin kapatıldı fakat paylaşım durdurulamadı. Tekrar deneyin."})
+						apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "İzin kapatıldı fakat paylaşım durdurulamadı. Tekrar deneyin.")
 						return
 					}
 				}
 			}
 			if err := saveShare(&room, "", 0); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Paylaşım durumu kaydedilemedi"})
+				apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Paylaşım durumu kaydedilemedi")
 				return
 			}
 		}
@@ -206,19 +207,19 @@ func StartScreenShare(c *gin.Context) {
 	}
 	user := c.MustGet("user").(models.User)
 	if user.ID != room.OwnerID && !room.AllowParticipantScreenShare {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Oda sahibi katılımcıların ekran paylaşmasına izin vermiyor"})
+		apierror.Respond(c, http.StatusForbidden, apierror.ScreenShareNotAllowed, "Oda sahibi katılımcıların ekran paylaşmasına izin vermiyor")
 		return
 	}
 	var input struct {
 		Identity string `json:"identity"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Katılımcı kimliği gerekli"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidRequest, "Katılımcı kimliği gerekli")
 		return
 	}
 	uid, err := participantUserID(input.Identity)
 	if err != nil || uid != user.ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Yalnızca kendi oturumunuzdan paylaşabilirsiniz"})
+		apierror.Respond(c, http.StatusForbidden, apierror.IdentityNotOwned, "Yalnızca kendi oturumunuzdan paylaşabilirsiniz")
 		return
 	}
 	ctx, svc, ps, ok := listRoomParticipants(c, room)
@@ -226,11 +227,11 @@ func StartScreenShare(c *gin.Context) {
 		return
 	}
 	if err := releaseStaleShare(ctx, svc, &room, ps); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım durumu alınamadı"})
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Paylaşım durumu alınamadı")
 		return
 	}
 	if room.ScreenShareIdentity != "" && room.ScreenShareIdentity != input.Identity {
-		c.JSON(http.StatusConflict, gin.H{"error": "Başka bir katılımcı ekranını paylaşıyor"})
+		apierror.Respond(c, http.StatusConflict, apierror.ScreenShareBusy, "Başka bir katılımcı ekranını paylaşıyor")
 		return
 	}
 	var target *livekit.ParticipantInfo
@@ -240,28 +241,28 @@ func StartScreenShare(c *gin.Context) {
 		}
 	}
 	if target == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Önce toplantıya bağlanın"})
+		apierror.Respond(c, http.StatusNotFound, apierror.ParticipantNotFound, "Önce toplantıya bağlanın")
 		return
 	}
 	if target.Permission == nil || !target.Permission.CanPublish {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Bu oturumun yayın izni yok"})
+		apierror.Respond(c, http.StatusForbidden, apierror.PublishNotPermitted, "Bu oturumun yayın izni yok")
 		return
 	}
 	if err := saveShare(&room, input.Identity, time.Now().Add(screenShareStartGrace).Unix()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Paylaşım başlatılamadı"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Paylaşım başlatılamadı")
 		return
 	}
 	// Revoke every other publisher before granting the selected one.
 	for _, p := range ps {
 		if p.Identity != input.Identity {
 			if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
-				c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım izinleri güncellenemedi"})
+				apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Paylaşım izinleri güncellenemedi")
 				return
 			}
 		}
 	}
 	if err := setScreenPermission(ctx, svc, room.RoomID, target, true); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım izni verilemedi. Tekrar deneyin."})
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Paylaşım izni verilemedi. Tekrar deneyin.")
 		return
 	}
 	c.JSON(http.StatusOK, meetingState(room))
@@ -278,13 +279,13 @@ func StopScreenShare(c *gin.Context) {
 		Identity string `json:"identity"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Katılımcı kimliği gerekli"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidRequest, "Katılımcı kimliği gerekli")
 		return
 	}
 	user := c.MustGet("user").(models.User)
 	uid, err := participantUserID(input.Identity)
 	if err != nil || (uid != user.ID && user.ID != room.OwnerID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Bu paylaşımı durdurma yetkiniz yok"})
+		apierror.Respond(c, http.StatusForbidden, apierror.IdentityNotOwned, "Bu paylaşımı durdurma yetkiniz yok")
 		return
 	}
 	if room.ScreenShareIdentity == "" {
@@ -292,7 +293,7 @@ func StopScreenShare(c *gin.Context) {
 		return
 	}
 	if input.Identity != room.ScreenShareIdentity {
-		c.JSON(http.StatusConflict, gin.H{"error": "Başka bir oturum ekran paylaşıyor"})
+		apierror.Respond(c, http.StatusConflict, apierror.ScreenShareBusy, "Başka bir oturum ekran paylaşıyor")
 		return
 	}
 	ctx, svc, ps, ok := listRoomParticipants(c, room)
@@ -302,13 +303,13 @@ func StopScreenShare(c *gin.Context) {
 	for _, p := range ps {
 		if p.Identity == input.Identity {
 			if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
-				c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım durdurulamadı"})
+				apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Paylaşım durdurulamadı")
 				return
 			}
 		}
 	}
 	if err := saveShare(&room, "", 0); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Paylaşım durumu kaydedilemedi"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Paylaşım durumu kaydedilemedi")
 		return
 	}
 	c.JSON(http.StatusOK, meetingState(room))

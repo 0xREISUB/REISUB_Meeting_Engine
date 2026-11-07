@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
 
@@ -35,13 +36,13 @@ type roomResponse struct {
 func CreateRoom(c *gin.Context) {
 	var input roomRequest
 	if err := c.ShouldBindJSON(&input); err != nil || strings.TrimSpace(input.Name) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "İsim gerekli"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.NameRequired, "İsim gerekli")
 		return
 	}
 
 	user := c.MustGet("user").(models.User)
 	if os.Getenv("LIVEKIT_API_KEY") == "" || os.Getenv("LIVEKIT_API_SECRET") == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "LiveKit yapılandırması eksik"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.MediaServerNotConfigured, "LiveKit yapılandırması eksik")
 		return
 	}
 	room := models.Room{
@@ -51,29 +52,29 @@ func CreateRoom(c *gin.Context) {
 		Status:  models.RoomStatusCreating,
 	}
 	if err := database.DB.Create(&room).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda oluşturulamadı"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
 		return
 	}
 
 	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
 		database.DB.Delete(&room)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
+		apierror.Respond(c, http.StatusServiceUnavailable, apierror.MediaServerNotConfigured, "Toplantı sunucusu yapılandırılmamış")
 		return
 	}
 	if _, err = service.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: room.RoomID}); err != nil {
 		database.DB.Delete(&room)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Toplantı sunucusunda oda oluşturulamadı"})
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Toplantı sunucusunda oda oluşturulamadı")
 		return
 	}
 	if err = database.DB.Model(&room).Update("status", models.RoomStatusActive).Error; err != nil {
 		service.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: room.RoomID})
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda etkinleştirilemedi"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda etkinleştirilemedi")
 		return
 	}
 	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
 		return
 	}
 	c.JSON(http.StatusCreated, response)
@@ -82,7 +83,7 @@ func CreateRoom(c *gin.Context) {
 func JoinRoom(c *gin.Context) {
 	var input roomRequest
 	if err := c.ShouldBindJSON(&input); err != nil || strings.TrimSpace(input.Name) == "" || !roomIDPattern.MatchString(input.RoomID) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "İsim ve geçerli oda kodu gerekli"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidRoomRequest, "İsim ve geçerli oda kodu gerekli")
 		return
 	}
 
@@ -90,25 +91,25 @@ func JoinRoom(c *gin.Context) {
 	defer releaseRoom()
 	var room models.Room
 	if err := database.DB.Where("room_id = ? AND status = ?", input.RoomID, models.RoomStatusActive).First(&room).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Oda bulunamadı"})
+		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
 		return
 	}
 
 	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
+		apierror.Respond(c, http.StatusServiceUnavailable, apierror.MediaServerNotConfigured, "Toplantı sunucusu yapılandırılmamış")
 		return
 	}
 	// Empty LiveKit rooms expire independently of the persisted room code.
 	// This is idempotent for an existing media session, and serialized with close.
 	if _, err = service.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: room.RoomID}); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Toplantı sunucusunda oda hazırlanamadı"})
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Toplantı sunucusunda oda hazırlanamadı")
 		return
 	}
 	user := c.MustGet("user").(models.User)
 	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), room.OwnerID == user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, response)

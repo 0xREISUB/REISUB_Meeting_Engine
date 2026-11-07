@@ -2,11 +2,13 @@ package controllers
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
 
@@ -45,4 +47,17 @@ func jsonRequest(handler http.Handler, method, path, token, body string) *httpte
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 	return w
+}
+
+// assertAPIError checks the status, the unchanged client-visible message and
+// the machine-readable code of an error response.
+func assertAPIError(t *testing.T, w *httptest.ResponseRecorder, status int, code apierror.Code, message string) {
+	t.Helper()
+	var body apierror.Body
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("non-JSON error body %q", w.Body.String())
+	}
+	if w.Code != status || body.Code != code || body.Error != message {
+		t.Fatalf("got %d %+v, want %d {Error:%s Code:%s}", w.Code, body, status, message, code)
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
 
@@ -38,18 +39,18 @@ func ownerRoom(c *gin.Context, allowClosed bool) (models.Room, bool) {
 	var room models.Room
 	if err := database.DB.Where("room_id = ?", c.Param("room_id")).First(&room).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Oda bulunamadı"})
+			apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda okunamadı"})
+			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
 		}
 		return room, false
 	}
 	if room.OwnerID != c.MustGet("user").(models.User).ID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Bu işlem yalnızca oda yöneticisine açık"})
+		apierror.Respond(c, http.StatusForbidden, apierror.NotRoomOwner, "Bu işlem yalnızca oda yöneticisine açık")
 		return room, false
 	}
 	if !allowClosed && room.Status != models.RoomStatusActive {
-		c.JSON(http.StatusConflict, gin.H{"error": "Oda aktif değil"})
+		apierror.Respond(c, http.StatusConflict, apierror.RoomNotActive, "Oda aktif değil")
 		return room, false
 	}
 	return room, true
@@ -68,20 +69,20 @@ func CloseRoom(c *gin.Context) {
 	}
 	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
+		apierror.Respond(c, http.StatusServiceUnavailable, apierror.MediaServerNotConfigured, "Toplantı sunucusu yapılandırılmamış")
 		return
 	}
 	// Deny new join tokens before terminating active media sessions.
 	if err = database.DB.Model(&room).Update("status", models.RoomStatusClosing).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda kapatma işlemi başlatılamadı"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapatma işlemi başlatılamadı")
 		return
 	}
 	if _, err = service.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: room.RoomID}); err != nil && !isTwirpNotFound(err) {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Oda katılıma kapatıldı fakat mevcut bağlantılar sonlandırılamadı. Tekrar deneyin."})
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Oda katılıma kapatıldı fakat mevcut bağlantılar sonlandırılamadı. Tekrar deneyin.")
 		return
 	}
 	if err = database.DB.Model(&room).Update("status", models.RoomStatusClosed).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda kapandı fakat durum kaydedilemedi. Tekrar deneyin."})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapandı fakat durum kaydedilemedi. Tekrar deneyin.")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": models.RoomStatusClosed})
@@ -127,22 +128,22 @@ func SetParticipantMicrophone(c *gin.Context) {
 	}
 	var input microphoneModerationRequest
 	if err := c.ShouldBindJSON(&input); err != nil || input.Locked == nil || (*input.Locked && input.RequestUnmute) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Geçerli bir mikrofon kilidi işlemi gerekli"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidRequest, "Geçerli bir mikrofon kilidi işlemi gerekli")
 		return
 	}
 	targetID, err := participantUserID(c.Param("identity"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Katılımcı kimliği geçersiz"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidIdentity, "Katılımcı kimliği geçersiz")
 		return
 	}
 	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
+		apierror.Respond(c, http.StatusServiceUnavailable, apierror.MediaServerNotConfigured, "Toplantı sunucusu yapılandırılmamış")
 		return
 	}
 	list, err := service.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: room.RoomID})
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Katılımcılar sunucudan alınamadı"})
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Katılımcılar sunucudan alınamadı")
 		return
 	}
 	found := false
@@ -153,12 +154,12 @@ func SetParticipantMicrophone(c *gin.Context) {
 		}
 	}
 	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Katılımcı artık odada değil"})
+		apierror.Respond(c, http.StatusNotFound, apierror.ParticipantNotFound, "Katılımcı artık odada değil")
 		return
 	}
 	lock := models.RoomMicrophoneLock{RoomID: room.RoomID, UserID: targetID, Locked: *input.Locked}
 	if err = database.DB.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "room_id"}, {Name: "user_id"}}, DoUpdates: clause.AssignmentColumns([]string{"locked"})}).Create(&lock).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Mikrofon kilidi kaydedilemedi"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Mikrofon kilidi kaydedilemedi")
 		return
 	}
 	// Apply to every current session of the same user to prevent device/rejoin bypass.
@@ -168,7 +169,7 @@ func SetParticipantMicrophone(c *gin.Context) {
 			continue
 		}
 		if err = applyMicrophonePolicy(ctx, service, room, p, *input.Locked, input.RequestUnmute); err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Mikrofon politikası kaydedildi fakat tüm oturumlara uygulanamadı. Tekrar deneyin."})
+			apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Mikrofon politikası kaydedildi fakat tüm oturumlara uygulanamadı. Tekrar deneyin.")
 			return
 		}
 	}

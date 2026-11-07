@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
 
@@ -42,23 +43,27 @@ func generateToken() string {
 func Register(c *gin.Context) {
 	input, ok := bindCredentials(c)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Eksik bilgi gönderildi"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.MissingCredentials, "Eksik bilgi gönderildi")
 		return
 	}
 	if len(input.Password) > maxPasswordBytes {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Şifre en fazla 72 bayt olabilir"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.PasswordTooLong, "Şifre en fazla 72 bayt olabilir")
 		return
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Kayıt tamamlanamadı"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Kayıt tamamlanamadı")
 		return
 	}
 	user := models.User{Nick: input.Nick, Password: string(hashedPassword)}
 
 	if err := database.DB.Create(&user).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Bu nick kullanımda"})
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			apierror.Respond(c, http.StatusBadRequest, apierror.NickTaken, "Bu nick kullanımda")
+		} else {
+			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Kayıt tamamlanamadı")
+		}
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Kayıt başarılı"})
@@ -67,24 +72,24 @@ func Register(c *gin.Context) {
 func Login(c *gin.Context) {
 	input, ok := bindCredentials(c)
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Eksik bilgi"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.MissingCredentials, "Eksik bilgi")
 		return
 	}
 
 	var user models.User
 	if err := database.DB.Where("nick = ?", input.Nick).First(&user).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Kullanıcı bulunamadı"})
+		apierror.Respond(c, http.StatusUnauthorized, apierror.UserNotFound, "Kullanıcı bulunamadı")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Hatalı şifre"})
+		apierror.Respond(c, http.StatusUnauthorized, apierror.WrongPassword, "Hatalı şifre")
 		return
 	}
 
 	newToken := generateToken()
 	if err := database.DB.Model(&user).Update("token", newToken).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oturum başlatılamadı"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oturum başlatılamadı")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Giriş başarılı", "token": newToken})
@@ -96,13 +101,13 @@ func Logout(c *gin.Context) {
 		token = strings.TrimSpace(token[len("Bearer "):])
 	}
 	if token == "" || len(token) < 30 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Token geçersiz"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidToken, "Token geçersiz")
 		return
 	}
 
 	var user models.User
 	if err := database.DB.Where("token = ?", token).First(&user).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Geçersiz token"})
+		apierror.Respond(c, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
 		return
 	}
 

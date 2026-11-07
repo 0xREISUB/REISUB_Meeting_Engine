@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
 
@@ -18,13 +19,13 @@ func RequireAuth() gin.HandlerFunc {
 		}
 
 		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Kimlik doğrulaması gerekli"})
+			apierror.Abort(c, http.StatusUnauthorized, apierror.AuthRequired, "Kimlik doğrulaması gerekli")
 			return
 		}
 
 		var user models.User
 		if err := database.DB.Where("token = ?", token).First(&user).Error; err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Geçersiz token"})
+			apierror.Abort(c, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
 			return
 		}
 

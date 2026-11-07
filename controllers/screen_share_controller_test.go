@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
 
@@ -59,9 +60,7 @@ func TestScreenShareDefaultClosedAndOnlyOwnerChangesSettings(t *testing.T) {
 			t.Fatal(w.Code)
 		}
 	}
-	if w := shareRequest(r, "start", "guest-token", testParticipantIdentity); w.Code != 403 {
-		t.Fatal(w.Code)
-	}
+	assertAPIError(t, shareRequest(r, "start", "guest-token", testParticipantIdentity), 403, apierror.ScreenShareNotAllowed, "Oda sahibi katılımcıların ekran paylaşmasına izin vermiyor")
 	if w := shareRequest(r, "start", "owner-token", ownerIdentity); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -105,9 +104,8 @@ func TestScreenShareConcurrentAdmissionAllowsOneAndStopFreesSlot(t *testing.T) {
 		otherToken = "guest-token"
 		other = testParticipantIdentity
 	}
-	if w := shareRequest(r, "stop", otherToken, other); w.Code != 409 {
-		t.Fatal("other session released the slot", w.Code)
-	}
+	assertAPIError(t, shareRequest(r, "stop", otherToken, other), 409, apierror.ScreenShareBusy, "Başka bir oturum ekran paylaşıyor")
+	assertAPIError(t, shareRequest(r, "start", otherToken, other), 409, apierror.ScreenShareBusy, "Başka bir katılımcı ekranını paylaşıyor")
 	if w := shareRequest(r, "stop", token, holder); w.Code != 200 {
 		t.Fatal(w.Code)
 	}

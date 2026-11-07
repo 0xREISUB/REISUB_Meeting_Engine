@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/routes"
 
@@ -15,7 +16,8 @@ import (
 func main() {
 	database.ConnectDB()
 
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Logger(), apierror.Recovery())
 	if err := r.SetTrustedProxies(nil); err != nil {
 		log.Fatal("Güvenilir proxy ayarı yapılandırılamadı: ", err)
 	}
