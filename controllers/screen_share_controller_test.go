@@ -2,15 +2,17 @@ package controllers
 
 import (
 	"encoding/json"
-	"github.com/gin-gonic/gin"
-	"github.com/livekit/protocol/auth"
-	"github.com/livekit/protocol/livekit"
 	"net/http/httptest"
-	"reisub-backend/database"
-	"reisub-backend/models"
 	"sync"
 	"testing"
 	"time"
+
+	"reisub-backend/database"
+	"reisub-backend/models"
+
+	"github.com/gin-gonic/gin"
+	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/livekit"
 )
 
 const ownerIdentity = "user-11-90b39d7a-5745-4c23-a697-e1e85fe145e0"

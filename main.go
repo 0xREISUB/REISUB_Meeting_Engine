@@ -4,32 +4,32 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
+
 	"reisub-backend/database"
 	"reisub-backend/routes"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// Veritabanını başlat
 	database.ConnectDB()
 
-	// Web sunucusunu başlat
 	r := gin.Default()
 	if err := r.SetTrustedProxies(nil); err != nil {
 		log.Fatal("Güvenilir proxy ayarı yapılandırılamadı: ", err)
 	}
 	r.Use(corsMiddleware())
 
-	// Rotaları (Endpointleri) yükle
 	routes.SetupRoutes(r)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-	r.Run(":" + port)
+	if err := r.Run(":" + port); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func corsMiddleware() gin.HandlerFunc {

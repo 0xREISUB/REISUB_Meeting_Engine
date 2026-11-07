@@ -4,7 +4,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"reisub-backend/models" // Kendi modül adını yaz
+
+	"reisub-backend/models"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -29,7 +30,6 @@ func ConnectDB() {
 		log.Fatal("Veritabanına bağlanılamadı: " + err.Error())
 	}
 
-	// Tabloları oluştur
 	if err := DB.AutoMigrate(&models.User{}, &models.Room{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}); err != nil {
 		log.Fatal("Veritabanı tabloları güncellenemedi: " + err.Error())
 	}

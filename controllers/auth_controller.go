@@ -82,7 +82,8 @@ func Logout(c *gin.Context) {
 		return
 	}
 
-	// Boş token açığına karşı rastgele yeni token atıyoruz
+	// Rotate to a fresh random token rather than clearing it, so an empty
+	// token can never match a logged-out user.
 	database.DB.Model(&user).Update("token", generateToken())
 	c.JSON(http.StatusOK, gin.H{"message": "Başarıyla çıkış yapıldı"})
 }
