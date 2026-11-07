@@ -19,6 +19,9 @@ func SetupRoutes(r *gin.Engine) {
 	r.POST("/login", controllers.Login)
 	r.POST("/logout", controllers.Logout)
 
+	// Called by LiveKit; authenticated by its signed JWT, not a user token.
+	r.POST("/livekit/webhook", controllers.LiveKitWebhook)
+
 	roomRoutes := r.Group("/rooms")
 	roomRoutes.Use(middleware.RequireAuth())
 	{

@@ -50,6 +50,13 @@ services:
           udp_port: 7882
         room:
           auto_create: false
+        # Room-owner succession needs participant_left/room_finished events.
+        # LiveKit signs each call with this API key; the backend rejects
+        # unsigned requests.
+        webhook:
+          api_key: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}"
+          urls:
+            - http://backend:${PORT:-8080}/livekit/webhook
         logging:
           level: info
     command:
