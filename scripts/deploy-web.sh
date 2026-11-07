@@ -5,7 +5,10 @@
 #   scripts/deploy-web.sh <ssh-host> [path-to-client-repo]
 #
 # The build uses a temporary worktree, so the client repo's working tree is
-# never touched. No container restart is needed: the backend reads the files
+# never touched. It runs the client's own tool/build_web.py, which builds
+# with Flutter and fills the invite page's server, download and project
+# links from the client's committed app.env (REISUB_* environment variables
+# override it; the client's local .env is not in the worktree). No container restart is needed: the backend reads the files
 # on each request.
 set -eu
 
@@ -23,8 +26,13 @@ trap cleanup EXIT
 git -C "$client" fetch --quiet origin main
 git -C "$client" worktree add --quiet --detach "$work/src" origin/main
 echo "Building $(git -C "$work/src" log --oneline -1)"
-(cd "$work/src" && flutter pub get && flutter build web --release)
-test -f "$work/src/build/web/invite/index.html" || { echo "invite page missing from build" >&2; exit 1; }
+(cd "$work/src" && python3 tool/build_web.py)
+invite="$work/src/build/web/invite/index.html"
+test -f "$invite" || { echo "invite page missing from build" >&2; exit 1; }
+if grep -q "__REISUB_" "$invite"; then
+	echo "invite page still has unfilled placeholders; check app.env" >&2
+	exit 1
+fi
 
 ssh "$host" "mkdir -p '$remote_dir'"
 # --delay-updates and --delete-after keep the old build intact until every

@@ -126,9 +126,15 @@ scripts/deploy-web.sh vds            # ssh host; optional 2nd arg: client repo p
 ```
 
 The script builds the client's `origin/main` in a temporary worktree (your
-client working tree is not touched), checks that the invite page is present,
-and uploads `build/web/` to `/root/projects/REISUB_Meeting_Engine/web` with
-rsync, replacing the old build only after every new file has arrived. No
+client working tree is not touched) with the client's own
+`python3 tool/build_web.py`. That tool runs `flutter build web --release` and
+then fills the invite page's server, download and project links from the
+client's committed `app.env` (`REISUB_*` environment variables override it; the
+client's local `.env` is not used). A plain `flutter build web` leaves those
+placeholders empty and the invite page hides the links, so the script refuses
+to upload a page with unfilled placeholders. It then uploads `build/web/` to
+`/root/projects/REISUB_Meeting_Engine/web` with rsync, replacing the old build
+only after every new file has arrived. No
 container restart is needed. Building on the server is avoided on purpose:
 Flutter builds are slow there and need the SDK.
 
