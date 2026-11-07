@@ -24,6 +24,10 @@ services:
       # Nginx Proxy Manager reaches the backend from a Docker network; trust
       # its X-Forwarded-For so per-IP limits see the real client.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+      # Guest sessions: token lifetime, and how long an unused guest is kept
+      # (Go durations; empty uses the defaults 720h and 336h).
+      GUEST_TOKEN_TTL: ${GUEST_TOKEN_TTL:-}
+      GUEST_INACTIVE_AFTER: ${GUEST_INACTIVE_AFTER:-}
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
     volumes:
