@@ -36,8 +36,8 @@ services:
       # (Go durations; empty uses the defaults 720h and 336h).
       GUEST_TOKEN_TTL: ${GUEST_TOKEN_TTL:-}
       GUEST_INACTIVE_AFTER: ${GUEST_INACTIVE_AFTER:-}
-    ports:
-      - "${PORT:-8080}:${PORT:-8080}"
+    # No published port: the backend is reachable only through Nginx Proxy
+    # Manager (HTTPS) on proxy-agi, and from LiveKit on the default network.
     volumes:
       - backend_data:/data
       - ./web:/web:ro

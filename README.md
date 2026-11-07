@@ -36,7 +36,15 @@ docker compose --env-file config/stack.env up -d --build
 docker compose --env-file config/stack.env ps
 ```
 
-The Compose project name and LiveKit service name match the existing deployment so Compose can manage its current `livekit-server` container rather than creating a port-conflicting second instance. The backend listens on the configured `PORT` (8080 by default). LiveKit keeps the existing API/WebSocket and WebRTC media port mappings.
+The Compose project name and LiveKit service name match the existing deployment so Compose can manage its current `livekit-server` container rather than creating a port-conflicting second instance. The backend listens on the configured `PORT` (8080 by default) inside Docker
+only; it publishes no host port. Nginx Proxy Manager, on the external
+`proxy-agi` network, forwards `meeting.reisub.xyz` and `api.meeting.reisub.xyz`
+to `reisub-meeting-backend:8080` with "Force SSL" on, so plain HTTP is
+redirected to HTTPS. The backend sends `Strict-Transport-Security` on HTTPS
+responses with `HSTS_MAX_AGE` seconds (Compose default 300, no
+`includeSubDomains`/`preload`); leave NPM's own HSTS switch off, as it
+hard-codes two years plus `preload`. To reach the API from the host itself,
+use `docker compose exec backend wget -qO- http://127.0.0.1:8080/ping`. LiveKit keeps the existing API/WebSocket and WebRTC media port mappings.
 
 ### LiveKit media networking
 
@@ -89,7 +97,7 @@ and container recreation keep the database volume. Do not use
 The backend serves the Flutter web client on the same origin as the API, so
 the web app uses its own origin as the meeting server and needs no CORS or
 `--dart-define`. In production `https://meeting.reisub.xyz` (Nginx Proxy
-Manager, forward port `8080`) serves both; `https://api.meeting.reisub.xyz`
+Manager, forwarding to `reisub-meeting-backend:8080`) serves both; `https://api.meeting.reisub.xyz`
 keeps serving the same API for the mobile apps.
 
 - `WEB_DIR` (set to `/web` in Compose, mounted read-only from `./web`) holds the
