@@ -28,6 +28,10 @@ func SetupRoutes(r *gin.Engine) {
 	// Short invite links; public, no auth.
 	r.GET("/j/:room_id", web.Invite)
 	r.HEAD("/j/:room_id", web.Invite)
+	// Android App Links verification for invite links; public, no auth.
+	assetLinks := webapp.AssetLinks()
+	r.GET("/.well-known/assetlinks.json", assetLinks)
+	r.HEAD("/.well-known/assetlinks.json", assetLinks)
 
 	// Health check used by clients to verify the server address.
 	r.GET("/ping", controllers.Ping)
