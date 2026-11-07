@@ -256,6 +256,32 @@ startup the backend logs a warning if any stored nick still has surrounding
 whitespace (such accounts cannot log in with trimmed input and need a manual
 migration).
 
+## Guest sessions
+
+Logging in is optional. `POST /guest` (no Authorization header, no body)
+creates a new guest user and answers `201 {"token": "<token>", "guest": true}`.
+Send the token as `Authorization: Bearer <token>` on `/rooms` requests, exactly
+like a login token: guests can create and join rooms, chat, share their screen
+and hold any room role.
+
+- Guest tokens expire after `GUEST_TOKEN_TTL` (default `720h`); the client then
+  gets `401` and creates a new guest. Login tokens do not expire.
+- Guests get a random `guest-…` nick that is never shown to others, have no
+  password and cannot log in. Registration rejects nicks starting with
+  `guest-` (`nick_reserved`).
+- `POST /guest` allows 30 sessions per client IP per 10 minutes, then answers
+  `429 rate_limited` with `Retry-After`. Behind a reverse proxy, set
+  `TRUSTED_PROXIES` (Compose default `172.16.0.0/12`) so the real client IP is
+  used; `/guest` never answers `404` or `405`, which clients read as "this
+  server requires an account".
+- Guests whose token expired or who were inactive for `GUEST_INACTIVE_AFTER`
+  (default `336h`) are deleted hourly with their room roles, microphone locks
+  and room display names. Chat messages stay (they store the sender's display
+  name); a room left without an owner passes to the next user who joins.
+
+Chat shows each sender with the name they gave when creating or joining the
+room, for guests and accounts alike.
+
 ## Errors
 
 Every error response is JSON:
@@ -276,6 +302,8 @@ the session token is missing or expired.
 | `internal_error` | Unexpected server failure (usually the database) |
 | `missing_credentials` | Nick or password missing, or nick blank after trimming |
 | `password_too_long` | Password longer than 72 bytes |
+| `nick_reserved` | Nicks starting with `guest-` are reserved for guests |
+| `rate_limited` | Too many requests from this address; retry later (429) |
 | `nick_taken` | Nick already registered |
 | `user_not_found` | No account with this nick |
 | `wrong_password` | Password does not match |
