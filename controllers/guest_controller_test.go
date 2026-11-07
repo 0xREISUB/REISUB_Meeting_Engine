@@ -161,8 +161,9 @@ func TestGuestsCreateJoinModerateAndSucceed(t *testing.T) {
 	if w := jsonRequest(r, http.MethodPost, base+"/screen-share/start", guestToken, `{"identity":"`+guestSession.Identity+`"}`); w.Code != 200 {
 		t.Fatal("guest moderator could not share:", w.Code, w.Body.String())
 	}
-	if w := jsonRequest(r, http.MethodPost, base+"/messages", guestToken, `{"content":"merhaba"}`); w.Code != 201 {
-		t.Fatal("guest could not chat:", w.Code, w.Body.String())
+	// Chat shows the name given when joining, never the guest nick.
+	if w := jsonRequest(r, http.MethodPost, base+"/messages", guestToken, `{"content":"merhaba"}`); w.Code != 201 || !strings.Contains(w.Body.String(), `"sender":"Mehmet"`) || strings.Contains(w.Body.String(), models.GuestNickPrefix) {
+		t.Fatal("guest chat:", w.Code, w.Body.String())
 	}
 
 	// The LiveKit webhook reports the guest owner gone: the guest moderator
@@ -177,5 +178,24 @@ func TestGuestsCreateJoinModerateAndSucceed(t *testing.T) {
 	}
 	if role, _ := effectiveRole(room.RoomID, host.ID); role != models.RoleParticipant {
 		t.Fatalf("departed guest owner kept powers: %s", role)
+	}
+}
+
+func TestChatSenderNeverRevealsGuestNick(t *testing.T) {
+	r, _ := moderationTestRouter(t)
+	_, guest := newGuest(t, r)
+	if got := displayName("123-456-789", guest); got != "Misafir" {
+		t.Fatalf("guest without a display name shown as %q", got)
+	}
+	var owner models.User
+	database.DB.First(&owner, 11)
+	if got := displayName("123-456-789", owner); got != "owner" {
+		t.Fatalf("account without a display name shown as %q", got)
+	}
+	if err := rememberDisplayName("123-456-789", owner.ID, "  Ayşe Hoca "); err != nil {
+		t.Fatal(err)
+	}
+	if got := displayName("123-456-789", owner); got != "Ayşe Hoca" {
+		t.Fatalf("display name = %q", got)
 	}
 }

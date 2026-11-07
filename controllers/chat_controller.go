@@ -67,7 +67,7 @@ func SendRoomMessage(c *gin.Context) {
 	message := models.ChatMessage{
 		RoomID:   roomID,
 		SenderID: user.ID,
-		Sender:   user.Nick,
+		Sender:   displayName(roomID, user),
 		Content:  content,
 	}
 	if err := database.DB.Create(&message).Error; err != nil {

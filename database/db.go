@@ -58,7 +58,7 @@ func Migrate(db *gorm.DB) error {
 			return err
 		}
 	}
-	return db.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomRole{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{})
+	return db.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomRole{}, &models.RoomMember{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{})
 }
 
 // CountUntrimmedNicks counts users whose stored nick has leading or trailing
