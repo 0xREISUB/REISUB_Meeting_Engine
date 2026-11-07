@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"reisub-backend/apierror"
 	"reisub-backend/database"
@@ -32,13 +34,34 @@ func RequireAuth() gin.HandlerFunc {
 			return
 		}
 
-		var user models.User
-		if err := database.DB.Where("token = ?", token).First(&user).Error; err != nil {
+		var users []models.User
+		if err := database.DB.Where("token = ?", token).Limit(1).Find(&users).Error; err != nil || len(users) == 0 {
 			apierror.Abort(c, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
 			return
 		}
+		user := users[0]
+		now := time.Now()
+		// Guest tokens expire; the client then creates a new guest session.
+		if user.TokenExpiresAt != nil && !now.Before(*user.TokenExpiresAt) {
+			apierror.Abort(c, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
+			return
+		}
+		touchLastSeen(user, now)
 
 		c.Set("user", user)
 		c.Next()
+	}
+}
+
+// lastSeenResolution limits LastSeenAt writes to one per user per hour, so
+// clients polling every two seconds do not write on every request.
+const lastSeenResolution = time.Hour
+
+func touchLastSeen(user models.User, now time.Time) {
+	if user.LastSeenAt != nil && now.Sub(*user.LastSeenAt) < lastSeenResolution {
+		return
+	}
+	if err := database.DB.Model(&models.User{}).Where("id = ?", user.ID).UpdateColumn("last_seen_at", now).Error; err != nil {
+		log.Printf("warning: could not record activity for user %d: %v", user.ID, err)
 	}
 }

@@ -32,6 +32,10 @@ const (
 	MissingCredentials Code = "missing_credentials"
 	// PasswordTooLong: password exceeds bcrypt's 72-byte limit.
 	PasswordTooLong Code = "password_too_long"
+	// NickReserved: nicks starting with "guest-" belong to guest sessions.
+	NickReserved Code = "nick_reserved"
+	// RateLimited: too many requests from this address; try again later (429).
+	RateLimited Code = "rate_limited"
 	// NickTaken: another account already uses this nick.
 	NickTaken Code = "nick_taken"
 	// UserNotFound: no account with this nick.

@@ -47,6 +47,10 @@ func Register(c *gin.Context) {
 		apierror.Respond(c, http.StatusBadRequest, apierror.MissingCredentials, "Eksik bilgi gönderildi")
 		return
 	}
+	if strings.HasPrefix(strings.ToLower(input.Nick), models.GuestNickPrefix) {
+		apierror.Respond(c, http.StatusBadRequest, apierror.NickReserved, "Bu nick kullanılamaz")
+		return
+	}
 	if len(input.Password) > maxPasswordBytes {
 		apierror.Respond(c, http.StatusBadRequest, apierror.PasswordTooLong, "Şifre en fazla 72 bayt olabilir")
 		return
@@ -78,7 +82,8 @@ func Login(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := database.DB.Where("nick = ?", input.Nick).First(&user).Error; err != nil {
+	// Guests have no password and can never log in.
+	if err := database.DB.Where("nick = ? AND is_guest = ?", input.Nick, false).First(&user).Error; err != nil {
 		apierror.Respond(c, http.StatusUnauthorized, apierror.UserNotFound, "Kullanıcı bulunamadı")
 		return
 	}
