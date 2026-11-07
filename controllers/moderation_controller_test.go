@@ -151,6 +151,7 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 	g.POST("/:room_id/participants/:identity/role", SetParticipantRole)
 	g.POST("/:room_id/transfer-ownership", TransferOwnership)
 	g.POST("/:room_id/leave", LeaveRoom)
+	r.POST("/livekit/webhook", LiveKitWebhook)
 	return r, f
 }
 func moderationRequest(r *gin.Engine, path, token, body string) *httptest.ResponseRecorder {

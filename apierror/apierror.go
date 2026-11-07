@@ -66,6 +66,8 @@ const (
 	InvalidRole Code = "invalid_role"
 	// LastOwner: an owner may step down only while another owner is connected.
 	LastOwner Code = "last_owner"
+	// InvalidWebhook: a LiveKit webhook without a valid signature (HTTP 401).
+	InvalidWebhook Code = "invalid_webhook"
 	// InvalidIdentity: the participant identity is malformed.
 	InvalidIdentity Code = "invalid_identity"
 	// IdentityNotOwned: the identity belongs to another user.
