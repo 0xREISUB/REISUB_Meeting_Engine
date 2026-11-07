@@ -33,33 +33,11 @@ type microphonePermissionBackup struct {
 	Sources    []livekit.TrackSource `json:"sources"`
 }
 
-// ownerRoom loads the room named in the path and checks that the caller owns
-// it. It writes the error response itself and reports whether to continue.
-func ownerRoom(c *gin.Context, allowClosed bool) (models.Room, bool) {
-	var room models.Room
-	if err := database.DB.Where("room_id = ?", c.Param("room_id")).First(&room).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
-		} else {
-			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
-		}
-		return room, false
-	}
-	if room.OwnerID != c.MustGet("user").(models.User).ID {
-		apierror.Respond(c, http.StatusForbidden, apierror.NotRoomOwner, "Bu işlem yalnızca oda yöneticisine açık")
-		return room, false
-	}
-	if !allowClosed && room.Status != models.RoomStatusActive {
-		apierror.Respond(c, http.StatusConflict, apierror.RoomNotActive, "Oda aktif değil")
-		return room, false
-	}
-	return room, true
-}
-
 func CloseRoom(c *gin.Context) {
 	releaseRoom := lockRoomLifecycle(c.Param("room_id"))
 	defer releaseRoom()
-	room, ok := ownerRoom(c, true)
+	// Owners and moderators may end the meeting for everyone.
+	room, _, ok := requireRoomRole(c, models.RoleModerator, true)
 	if !ok {
 		return
 	}
@@ -123,7 +101,7 @@ type microphoneModerationRequest struct {
 func SetParticipantMicrophone(c *gin.Context) {
 	releaseRoom := lockRoomLifecycle(c.Param("room_id"))
 	defer releaseRoom()
-	room, ok := ownerRoom(c, false)
+	room, callerRole, ok := requireRoomRole(c, models.RoleModerator, false)
 	if !ok {
 		return
 	}
@@ -135,6 +113,15 @@ func SetParticipantMicrophone(c *gin.Context) {
 	targetID, err := participantUserID(c.Param("identity"))
 	if err != nil {
 		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidIdentity, "Katılımcı kimliği geçersiz")
+		return
+	}
+	targetRole, err := effectiveRole(room.RoomID, targetID)
+	if err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+		return
+	}
+	if !canActOn(callerRole, targetRole) {
+		respondTargetProtected(c)
 		return
 	}
 	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)

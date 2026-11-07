@@ -166,6 +166,15 @@ func releaseStaleShare(ctx context.Context, svc liveKitRoomService, room *models
 	return saveShare(room, "", 0)
 }
 
+// shareHolderRole returns the room role of the current screen-share holder.
+func shareHolderRole(room models.Room) (string, error) {
+	uid, err := participantUserID(room.ScreenShareIdentity)
+	if err != nil {
+		return models.RoleParticipant, nil
+	}
+	return effectiveRole(room.RoomID, uid)
+}
+
 func meetingState(room models.Room) gin.H {
 	return gin.H{"allow_participant_screen_share": room.AllowParticipantScreenShare, "screen_share_identity": room.ScreenShareIdentity}
 }
@@ -215,7 +224,8 @@ func GetMeetingState(c *gin.Context) {
 func UpdateMeetingSettings(c *gin.Context) {
 	release := lockRoomLifecycle(c.Param("room_id"))
 	defer release()
-	room, ok := ownerRoom(c, false)
+	// Owners and moderators control the participant sharing setting.
+	room, _, ok := requireRoomRole(c, models.RoleModerator, false)
 	if !ok {
 		return
 	}
@@ -233,8 +243,14 @@ func UpdateMeetingSettings(c *gin.Context) {
 	}
 	room.AllowParticipantScreenShare = *input.Allowed
 	if !*input.Allowed && room.ScreenShareIdentity != "" {
-		uid, _ := participantUserID(room.ScreenShareIdentity)
-		if uid != room.OwnerID {
+		// Owners and moderators may share regardless of the setting, so only a
+		// participant's share is stopped.
+		holderRole, err := shareHolderRole(room)
+		if err != nil {
+			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+			return
+		}
+		if holderRole == models.RoleParticipant {
 			ctx, svc, ps, ok := listRoomParticipants(c, room)
 			if !ok {
 				return
@@ -264,7 +280,12 @@ func StartScreenShare(c *gin.Context) {
 		return
 	}
 	user := c.MustGet("user").(models.User)
-	if user.ID != room.OwnerID && !room.AllowParticipantScreenShare {
+	callerRole, err := effectiveRole(room.RoomID, user.ID)
+	if err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+		return
+	}
+	if callerRole == models.RoleParticipant && !room.AllowParticipantScreenShare {
 		apierror.Respond(c, http.StatusForbidden, apierror.ScreenShareNotAllowed, "Oda sahibi katılımcıların ekran paylaşmasına izin vermiyor")
 		return
 	}
@@ -342,9 +363,31 @@ func StopScreenShare(c *gin.Context) {
 	}
 	user := c.MustGet("user").(models.User)
 	uid, err := participantUserID(input.Identity)
-	if err != nil || (uid != user.ID && user.ID != room.OwnerID) {
+	if err != nil {
 		apierror.Respond(c, http.StatusForbidden, apierror.IdentityNotOwned, "Bu paylaşımı durdurma yetkiniz yok")
 		return
+	}
+	// Anyone may stop their own share; owners and moderators may stop the
+	// share of someone they can act on.
+	if uid != user.ID {
+		callerRole, err := effectiveRole(room.RoomID, user.ID)
+		if err != nil {
+			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+			return
+		}
+		if callerRole == models.RoleParticipant {
+			apierror.Respond(c, http.StatusForbidden, apierror.IdentityNotOwned, "Bu paylaşımı durdurma yetkiniz yok")
+			return
+		}
+		targetRole, err := effectiveRole(room.RoomID, uid)
+		if err != nil {
+			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+			return
+		}
+		if !canActOn(callerRole, targetRole) {
+			respondTargetProtected(c)
+			return
+		}
 	}
 	if room.ScreenShareIdentity == "" {
 		c.JSON(http.StatusOK, meetingState(room))

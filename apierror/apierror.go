@@ -54,8 +54,14 @@ const (
 	RoomNotFound Code = "room_not_found"
 	// RoomNotActive: the room exists but is closing or closed.
 	RoomNotActive Code = "room_not_active"
-	// NotRoomOwner: only the room owner may do this.
+	// NotRoomOwner: only a room owner or moderator may do this. (The name
+	// predates moderators and is kept for compatibility.)
 	NotRoomOwner Code = "not_room_owner"
+	// OwnerRequired: only a room owner may do this.
+	OwnerRequired Code = "owner_required"
+	// TargetProtected: the target is an owner, or a moderator and the caller
+	// is a moderator.
+	TargetProtected Code = "target_protected"
 	// InvalidIdentity: the participant identity is malformed.
 	InvalidIdentity Code = "invalid_identity"
 	// IdentityNotOwned: the identity belongs to another user.

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"reisub-backend/apierror"
 	"reisub-backend/database"
@@ -72,7 +73,10 @@ func (f *fakeModeration) UpdateParticipant(_ context.Context, r *livekit.UpdateP
 	f.updates++
 	for _, p := range f.participants {
 		if p.Identity == r.Identity {
-			p.Permission = proto.Clone(r.Permission).(*livekit.ParticipantPermission)
+			// LiveKit leaves the permission unchanged when none is sent.
+			if r.Permission != nil {
+				p.Permission = proto.Clone(r.Permission).(*livekit.ParticipantPermission)
+			}
 			if p.Attributes == nil {
 				p.Attributes = map[string]string{}
 			}
@@ -116,6 +120,9 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 		}
 	}
 	if err = db.Create(&models.Room{RoomID: "123-456-789", Name: "test", OwnerID: 11, Status: "active"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Create(&models.RoomRole{RoomID: "123-456-789", UserID: 11, Role: models.RoleOwner, GrantedAt: time.Now()}).Error; err != nil {
 		t.Fatal(err)
 	}
 	f := &fakeModeration{participants: []*livekit.ParticipantInfo{{Identity: testParticipantIdentity, Permission: &livekit.ParticipantPermission{CanPublish: true, CanSubscribe: true, CanPublishData: true}, Tracks: []*livekit.TrackInfo{{Sid: "mic", Source: livekit.TrackSource_MICROPHONE}, {Sid: "camera", Source: livekit.TrackSource_CAMERA}}}}}
