@@ -11,15 +11,7 @@ cp config/stack.env.example config/stack.env
 chmod 600 config/stack.env
 ```
 
-Edit `config/stack.env` before deployment. The included `devkey` and `devsecret` values are for development only; use unique credentials before production. For the first manager start only, create a one-time bootstrap password file. The manager hashes the password into its persistent volume and removes the plaintext file after successful initialization; it is never passed through container environment variables.
-
-```sh
-umask 077
-openssl rand -hex 32 | tee config/admin-init.password
-chmod 600 config/admin-init.password
-```
-
-Keep the displayed password for the first panel login. It is not stored in Compose environment variables or the config file; the manager hashes it and removes the one-time file during startup.
+Edit `config/stack.env` before deployment. The included `devkey` and `devsecret` values are for development only; use unique credentials before production.
 
 ### Preserve an existing database
 
@@ -37,14 +29,14 @@ else
 fi
 ```
 
-Build and start the complete stack, including the manager:
+Build and start the stack:
 
 ```sh
 docker compose --env-file config/stack.env up -d --build
 docker compose --env-file config/stack.env ps
 ```
 
-The Compose project name and LiveKit service name match the existing deployment so Compose can manage its current `livekit-server` container rather than creating a port-conflicting second instance. The backend listens on the configured `PORT` (8080 by default). LiveKit keeps the existing API/WebSocket and WebRTC media port mappings. The manager panel listens on host loopback at port 8090 by default; access it locally at `http://127.0.0.1:8090` or place it behind a VPN-only HTTPS reverse proxy for VPN access. Do not publish it directly to the public internet because its Docker access can control the host.
+The Compose project name and LiveKit service name match the existing deployment so Compose can manage its current `livekit-server` container rather than creating a port-conflicting second instance. The backend listens on the configured `PORT` (8080 by default). LiveKit keeps the existing API/WebSocket and WebRTC media port mappings.
 
 ### LiveKit media networking
 
@@ -77,13 +69,20 @@ docker compose --env-file config/stack.env up -d --no-deps livekit
 
 See [LiveKit ports and firewall documentation](https://docs.livekit.io/transport/self-hosting/ports-firewall/).
 
-To inspect service output:
+### Day-to-day operations
+
+Run these on the server from this directory:
 
 ```sh
-docker compose --env-file config/stack.env logs --tail=100 backend livekit manager
+docker compose --env-file config/stack.env ps                        # status
+docker compose --env-file config/stack.env logs --tail=100 backend livekit   # logs
+docker compose --env-file config/stack.env restart backend           # restart one service
+docker compose --env-file config/stack.env up -d --build             # apply config or code changes
 ```
 
-The panel remains available when the backend or LiveKit is stopped. Its start action creates a missing service container; restart recreates the service if it is absent. Routine restarts and container recreation retain the database volume. Do not use `docker compose down -v` unless you intentionally want to delete the database.
+To change settings, edit `config/stack.env` and run the last command. Restarts
+and container recreation keep the database volume. Do not use
+`docker compose down -v` unless you intentionally want to delete the database.
 
 ## Room owner controls
 
@@ -220,9 +219,6 @@ the session token is missing or expired.
 | `screen_share_busy` | Another session holds the screen-share slot |
 | `publish_not_permitted` | Session may not publish media |
 | `invalid_message` | Chat message empty or over 1000 characters |
-
-The admin panel (`cmd/manager`, `management/`) is a separate service and keeps
-its own `{"error"}` responses.
 
 ## Development
 

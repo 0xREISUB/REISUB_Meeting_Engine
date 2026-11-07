@@ -9,11 +9,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w" \
-    -o /out/reisub-backend . \
-    && CGO_ENABLED=0 GOOS=linux go build \
-    -trimpath \
-    -ldflags="-s -w" \
-    -o /out/reisub-manager ./cmd/manager
+    -o /out/reisub-backend .
 
 FROM alpine:3.22 AS backend
 
@@ -28,12 +24,3 @@ COPY --from=build /out/reisub-backend /usr/local/bin/reisub-backend
 USER 10001:10001
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/reisub-backend"]
-
-FROM alpine:3.22 AS manager
-
-RUN apk add --no-cache ca-certificates wget docker-cli docker-cli-compose
-
-COPY --from=build /out/reisub-manager /usr/local/bin/reisub-manager
-
-EXPOSE 8090
-ENTRYPOINT ["/usr/local/bin/reisub-manager"]
