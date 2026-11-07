@@ -10,7 +10,6 @@ import (
 
 	"reisub-backend/apierror"
 	"reisub-backend/database"
-	"reisub-backend/models"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -32,7 +31,7 @@ func useTestDB(t *testing.T) *gorm.DB {
 			_ = sqlDB.Close()
 		}
 	})
-	if err = db.AutoMigrate(&models.User{}, &models.Room{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}); err != nil {
+	if err = database.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
 	return db

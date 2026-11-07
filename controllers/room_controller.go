@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+	"gorm.io/gorm"
 )
 
 var roomIDPattern = regexp.MustCompile(`^\d{3}-\d{3}-\d{3}$`)
@@ -33,7 +34,10 @@ type roomResponse struct {
 	LiveKitURL  string `json:"livekit_url"`
 	Token       string `json:"token"`
 	Participant string `json:"participant"`
-	IsHost      bool   `json:"is_host"`
+	// IsHost is true for owners and moderators so older clients still show
+	// the moderation controls; Role is the precise room role.
+	IsHost bool   `json:"is_host"`
+	Role   string `json:"role"`
 }
 
 func CreateRoom(c *gin.Context) {
@@ -59,7 +63,13 @@ func CreateRoom(c *gin.Context) {
 		OwnerID: user.ID,
 		Status:  models.RoomStatusCreating,
 	}
-	if err := database.DB.Create(&room).Error; err != nil {
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&room).Error; err != nil {
+			return err
+		}
+		return tx.Create(&models.RoomRole{RoomID: room.RoomID, UserID: user.ID, Role: models.RoleOwner, GrantedAt: time.Now(), GrantedBy: user.ID}).Error
+	})
+	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
 		return
 	}
@@ -80,7 +90,7 @@ func CreateRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda etkinleştirilemedi")
 		return
 	}
-	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), true)
+	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), models.RoleOwner)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
 		return
@@ -115,7 +125,12 @@ func JoinRoom(c *gin.Context) {
 		return
 	}
 	user := c.MustGet("user").(models.User)
-	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), room.OwnerID == user.ID)
+	role, err := effectiveRole(room.RoomID, user.ID)
+	if err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+		return
+	}
+	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), role)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
 		return
@@ -144,7 +159,7 @@ func newRoomID() (string, error) {
 	return "", errors.New("no free room code found")
 }
 
-func makeRoomResponse(room models.Room, userID uint, participant string, isHost bool) (roomResponse, error) {
+func makeRoomResponse(room models.Room, userID uint, participant, role string) (roomResponse, error) {
 	apiKey := os.Getenv("LIVEKIT_API_KEY")
 	apiSecret := os.Getenv("LIVEKIT_API_SECRET")
 	if apiKey == "" || apiSecret == "" {
@@ -169,7 +184,7 @@ func makeRoomResponse(room models.Room, userID uint, participant string, isHost 
 		sources = []livekit.TrackSource{livekit.TrackSource_CAMERA}
 	}
 	grant.SetCanPublishSources(sources)
-	attrs := map[string]string{microphoneLockAttribute: "false"}
+	attrs := map[string]string{microphoneLockAttribute: "false", roleAttribute: roleAttributeValue(role)}
 	if locked {
 		attrs[microphoneLockAttribute] = "true"
 		attrs[microphoneSourcesAttribute] = `{"can_publish":true,"sources":null}`
@@ -191,7 +206,8 @@ func makeRoomResponse(room models.Room, userID uint, participant string, isHost 
 		LiveKitURL:  liveKitURL(),
 		Token:       token,
 		Participant: participant,
-		IsHost:      isHost,
+		IsHost:      roleRank(role) >= roleRank(models.RoleModerator),
+		Role:        role,
 	}, nil
 }
 
