@@ -7,30 +7,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"reisub-backend/database"
 	"reisub-backend/models"
 
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 )
 
 func TestRoomMessagesPersistAndIdentifySender(t *testing.T) {
-	previousDB := database.DB
-	db, err := gorm.Open(sqlite.Open("file:chat-controller-test?mode=memory&cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open test database: %v", err)
-	}
-	database.DB = db
-	t.Cleanup(func() {
-		database.DB = previousDB
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	if err := db.AutoMigrate(&models.Room{}, &models.ChatMessage{}); err != nil {
-		t.Fatalf("migrate test database: %v", err)
-	}
+	db := useTestDB(t)
 	if err := db.Create(&models.Room{RoomID: "123-456-789", Name: "test", Status: "active"}).Error; err != nil {
 		t.Fatalf("create test room: %v", err)
 	}

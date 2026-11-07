@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,11 +13,9 @@ import (
 	"reisub-backend/models"
 
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"google.golang.org/protobuf/proto"
-	"gorm.io/gorm"
 )
 
 const testParticipantIdentity = "user-22-90b39d7a-5745-4c23-a697-e1e85fe145e0"
@@ -77,16 +74,8 @@ func (f *fakeModeration) MutePublishedTrack(_ context.Context, r *livekit.MuteRo
 
 func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 	t.Helper()
-	previous := database.DB
-	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	database.DB = db
-	t.Cleanup(func() { database.DB = previous; sql, _ := db.DB(); sql.Close() })
-	if err = db.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomMicrophoneLock{}); err != nil {
-		t.Fatal(err)
-	}
+	db := useTestDB(t)
+	var err error
 	for _, u := range []models.User{{ID: 11, Nick: "owner", Password: "unused", Token: "owner-token"}, {ID: 22, Nick: "guest", Password: "unused", Token: "guest-token"}} {
 		if err = db.Create(&u).Error; err != nil {
 			t.Fatal(err)
@@ -117,14 +106,7 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 	return r, f
 }
 func moderationRequest(r *gin.Engine, path, token, body string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(body))
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	return w
+	return jsonRequest(r, http.MethodPost, path, token, body)
 }
 func microphonePath() string {
 	return "/rooms/123-456-789/participants/" + testParticipantIdentity + "/microphone"
