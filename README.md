@@ -105,6 +105,14 @@ keeps serving the same API for the mobile apps.
   `"invite_url": "<PUBLIC_WEB_URL>/j/<room_id>"` to `POST /rooms` and
   `POST /rooms/join`. Without it the field is omitted.
 
+- `GET /.well-known/assetlinks.json` (no auth) proves to Android that the app
+  may open this host's `/j/...` and `/invite` links directly. It lists
+  `ANDROID_PACKAGE_NAME` (default `xyz.reisub.meeting`) and
+  `ANDROID_CERT_FINGERPRINTS` (comma-separated SHA-256 signing certificate
+  fingerprints; default: the release key of the official app). A fork signed
+  with another key must set both. Android checks the host of the invite links,
+  i.e. the host of `PUBLIC_WEB_URL`.
+
 Browsers allow camera and microphone only on HTTPS origins, so always use the
 TLS host.
 
