@@ -199,3 +199,22 @@ func TestChatSenderNeverRevealsGuestNick(t *testing.T) {
 		t.Fatalf("display name = %q", got)
 	}
 }
+
+func TestRoomOfDeletedGuestOwnerPassesToNextJoiner(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	f.participants = nil
+	hostToken, host := newGuest(t, r)
+	created := jsonRequest(r, http.MethodPost, "/rooms", hostToken, `{"name":"Ayşe"}`)
+	var room roomResponse
+	_ = json.Unmarshal(created.Body.Bytes(), &room)
+
+	database.DB.Model(&host).Update("last_seen_at", time.Now().AddDate(0, 0, -30))
+	if deleted, err := database.DeleteInactiveGuests(database.DB, time.Now().AddDate(0, 0, -14)); err != nil || deleted != 1 {
+		t.Fatalf("cleanup deleted %d (%v)", deleted, err)
+	}
+	assertAPIError(t, jsonRequest(r, http.MethodGet, "/rooms/"+room.RoomID+"/state", hostToken, ""), 401, apierror.InvalidToken, "Geçersiz token")
+	joined := jsonRequest(r, http.MethodPost, "/rooms/join", "guest-token", `{"room_id":"`+room.RoomID+`","name":"Mehmet"}`)
+	if joined.Code != 200 || !strings.Contains(joined.Body.String(), `"role":"owner"`) {
+		t.Fatal("room without its deleted owner did not pass to the next joiner:", joined.Code, joined.Body.String())
+	}
+}

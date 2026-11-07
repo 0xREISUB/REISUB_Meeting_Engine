@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"reisub-backend/apierror"
+	"reisub-backend/controllers"
 	"reisub-backend/database"
 	"reisub-backend/routes"
 
@@ -15,6 +16,7 @@ import (
 
 func main() {
 	database.ConnectDB()
+	controllers.StartGuestCleanup()
 
 	r := gin.New()
 	r.Use(gin.Logger(), apierror.Recovery())
