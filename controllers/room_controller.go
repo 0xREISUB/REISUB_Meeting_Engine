@@ -1,7 +1,10 @@
 package controllers
 
 import (
+	"crypto/rand"
+	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"regexp"
@@ -45,8 +48,13 @@ func CreateRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.MediaServerNotConfigured, "LiveKit yapılandırması eksik")
 		return
 	}
+	roomID, err := newRoomID()
+	if err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
+		return
+	}
 	room := models.Room{
-		RoomID:  newRoomID(),
+		RoomID:  roomID,
 		Name:    strings.TrimSpace(input.Name),
 		OwnerID: user.ID,
 		Status:  models.RoomStatusCreating,
@@ -115,16 +123,25 @@ func JoinRoom(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-func newRoomID() string {
-	var roomID string
-	for {
-		roomID = fmt.Sprintf("%03d-%03d-%03d", time.Now().UnixNano()%1000, time.Now().UnixNano()/1000%1000, time.Now().UnixNano()/1000000%1000)
+// newRoomID returns an unused room code of the form NNN-NNN-NNN. The code is
+// the only secret needed to join a room, so it must not be predictable.
+func newRoomID() (string, error) {
+	for attempt := 0; attempt < 10; attempt++ {
+		n, err := rand.Int(rand.Reader, big.NewInt(1_000_000_000))
+		if err != nil {
+			return "", err
+		}
+		v := n.Int64()
+		roomID := fmt.Sprintf("%03d-%03d-%03d", v/1_000_000, v/1_000%1_000, v%1_000)
 		var count int64
-		database.DB.Model(&models.Room{}).Where("room_id = ?", roomID).Count(&count)
+		if err = database.DB.Model(&models.Room{}).Where("room_id = ?", roomID).Count(&count).Error; err != nil {
+			return "", err
+		}
 		if count == 0 {
-			return roomID
+			return roomID, nil
 		}
 	}
+	return "", errors.New("no free room code found")
 }
 
 func makeRoomResponse(room models.Room, userID uint, participant string, isHost bool) (roomResponse, error) {
