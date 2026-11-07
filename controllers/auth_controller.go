@@ -13,24 +13,48 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// bcrypt only accepts passwords up to 72 bytes.
+const maxPasswordBytes = 72
+
+type credentials struct {
+	Nick     string `json:"nick" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+// bindCredentials parses a nick/password body. The nick is trimmed so that
+// " alice " and "alice" are the same account; the password is used verbatim.
+func bindCredentials(c *gin.Context) (credentials, bool) {
+	var input credentials
+	if err := c.ShouldBindJSON(&input); err != nil {
+		return input, false
+	}
+	input.Nick = strings.TrimSpace(input.Nick)
+	return input, input.Nick != ""
+}
+
 func generateToken() string {
 	bytes := make([]byte, 32)
-	rand.Read(bytes)
+	// crypto/rand.Read never returns an error on supported platforms.
+	_, _ = rand.Read(bytes)
 	return hex.EncodeToString(bytes)
 }
 
 func Register(c *gin.Context) {
-	var input struct {
-		Nick     string `json:"nick" binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-
-	if err := c.ShouldBindJSON(&input); err != nil {
+	input, ok := bindCredentials(c)
+	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Eksik bilgi gönderildi"})
 		return
 	}
+	if len(input.Password) > maxPasswordBytes {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Şifre en fazla 72 bayt olabilir"})
+		return
+	}
 
-	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Kayıt tamamlanamadı"})
+		return
+	}
 	user := models.User{Nick: input.Nick, Password: string(hashedPassword)}
 
 	if err := database.DB.Create(&user).Error; err != nil {
@@ -41,11 +65,8 @@ func Register(c *gin.Context) {
 }
 
 func Login(c *gin.Context) {
-	var input struct {
-		Nick     string `json:"nick" binding:"required"`
-		Password string `json:"password" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&input); err != nil {
+	input, ok := bindCredentials(c)
+	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Eksik bilgi"})
 		return
 	}
@@ -62,7 +83,10 @@ func Login(c *gin.Context) {
 	}
 
 	newToken := generateToken()
-	database.DB.Model(&user).Update("token", newToken)
+	if err := database.DB.Model(&user).Update("token", newToken).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oturum başlatılamadı"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "Giriş başarılı", "token": newToken})
 }
 
