@@ -78,7 +78,7 @@ func SendRoomMessage(c *gin.Context) {
 
 func activeRoomExists(roomID string) bool {
 	var count int64
-	database.DB.Model(&models.Room{}).Where("room_id = ? AND status = ?", roomID, "active").Count(&count)
+	database.DB.Model(&models.Room{}).Where("room_id = ? AND status = ?", roomID, models.RoomStatusActive).Count(&count)
 	return count > 0
 }
 

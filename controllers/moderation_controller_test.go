@@ -96,9 +96,9 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 		t.Fatal(err)
 	}
 	f := &fakeModeration{participants: []*livekit.ParticipantInfo{{Identity: testParticipantIdentity, Permission: &livekit.ParticipantPermission{CanPublish: true, CanSubscribe: true, CanPublishData: true}, Tracks: []*livekit.TrackInfo{{Sid: "mic", Source: livekit.TrackSource_MICROPHONE}, {Sid: "camera", Source: livekit.TrackSource_CAMERA}}}}}
-	oldFactory := newModerationService
-	newModerationService = func(string) roomModerationService { return f }
-	t.Cleanup(func() { newModerationService = oldFactory })
+	oldFactory := newLiveKitRoomService
+	newLiveKitRoomService = func(string) liveKitRoomService { return f }
+	t.Cleanup(func() { newLiveKitRoomService = oldFactory })
 	t.Setenv("LIVEKIT_API_KEY", "test-key")
 	t.Setenv("LIVEKIT_API_SECRET", "test-secret-000000000000000000000000")
 	t.Setenv("LIVEKIT_INTERNAL_URL", "http://livekit:7880")

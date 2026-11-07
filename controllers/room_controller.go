@@ -48,14 +48,14 @@ func CreateRoom(c *gin.Context) {
 		RoomID:  newRoomID(),
 		Name:    strings.TrimSpace(input.Name),
 		OwnerID: user.ID,
-		Status:  "creating",
+		Status:  models.RoomStatusCreating,
 	}
 	if err := database.DB.Create(&room).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda oluşturulamadı"})
 		return
 	}
 
-	ctx, service, err := moderationService(c.Request.Context(), room.RoomID)
+	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
 		database.DB.Delete(&room)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
@@ -66,7 +66,7 @@ func CreateRoom(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Toplantı sunucusunda oda oluşturulamadı"})
 		return
 	}
-	if err = database.DB.Model(&room).Update("status", "active").Error; err != nil {
+	if err = database.DB.Model(&room).Update("status", models.RoomStatusActive).Error; err != nil {
 		service.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: room.RoomID})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda etkinleştirilemedi"})
 		return
@@ -89,12 +89,12 @@ func JoinRoom(c *gin.Context) {
 	releaseRoom := lockRoomLifecycle(input.RoomID)
 	defer releaseRoom()
 	var room models.Room
-	if err := database.DB.Where("room_id = ? AND status = ?", input.RoomID, "active").First(&room).Error; err != nil {
+	if err := database.DB.Where("room_id = ? AND status = ?", input.RoomID, models.RoomStatusActive).First(&room).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Oda bulunamadı"})
 		return
 	}
 
-	ctx, service, err := moderationService(c.Request.Context(), room.RoomID)
+	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
 		return
@@ -145,6 +145,7 @@ func makeRoomResponse(room models.Room, userID uint, participant string, isHost 
 	if err != nil {
 		return roomResponse{}, fmt.Errorf("Mikrofon yetkisi okunamadı")
 	}
+	// Screen sources are never part of a join token; see StartScreenShare.
 	sources := []livekit.TrackSource{livekit.TrackSource_CAMERA, livekit.TrackSource_MICROPHONE}
 	if locked {
 		sources = []livekit.TrackSource{livekit.TrackSource_CAMERA}
@@ -152,7 +153,6 @@ func makeRoomResponse(room models.Room, userID uint, participant string, isHost 
 	grant.SetCanPublishSources(sources)
 	attrs := map[string]string{microphoneLockAttribute: "false"}
 	if locked {
-		grant.SetCanPublishSources(sources)
 		attrs[microphoneLockAttribute] = "true"
 		attrs[microphoneSourcesAttribute] = `{"can_publish":true,"sources":null}`
 	}
@@ -178,10 +178,3 @@ func makeRoomResponse(room models.Room, userID uint, participant string, isHost 
 }
 
 func boolPtr(value bool) *bool { return &value }
-
-func liveKitURL() string {
-	if value := os.Getenv("LIVEKIT_PUBLIC_URL"); value != "" {
-		return value
-	}
-	return "ws://localhost:7880"
-}

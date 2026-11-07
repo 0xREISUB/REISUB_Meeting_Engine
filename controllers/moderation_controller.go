@@ -6,82 +6,34 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
-	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"reisub-backend/database"
 	"reisub-backend/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
-	"github.com/twitchtv/twirp"
 	"google.golang.org/protobuf/proto"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
-const microphoneLockAttribute = "meeting.microphone_locked"
-const microphoneRequestAttribute = "meeting.microphone_request"
-const microphoneSourcesAttribute = "meeting.microphone_original_permission"
+// Participant attributes used to deliver microphone moderation to clients.
+const (
+	microphoneLockAttribute    = "meeting.microphone_locked"
+	microphoneRequestAttribute = "meeting.microphone_request"
+	microphoneSourcesAttribute = "meeting.microphone_original_permission"
+)
 
 type microphonePermissionBackup struct {
 	CanPublish bool                  `json:"can_publish"`
 	Sources    []livekit.TrackSource `json:"sources"`
 }
 
-type roomModerationService interface {
-	CreateRoom(context.Context, *livekit.CreateRoomRequest) (*livekit.Room, error)
-	DeleteRoom(context.Context, *livekit.DeleteRoomRequest) (*livekit.DeleteRoomResponse, error)
-	ListParticipants(context.Context, *livekit.ListParticipantsRequest) (*livekit.ListParticipantsResponse, error)
-	UpdateParticipant(context.Context, *livekit.UpdateParticipantRequest) (*livekit.ParticipantInfo, error)
-	MutePublishedTrack(context.Context, *livekit.MuteRoomTrackRequest) (*livekit.MuteRoomTrackResponse, error)
-}
-
-var newModerationService = func(endpoint string) roomModerationService {
-	return livekit.NewRoomServiceProtobufClient(endpoint, &http.Client{Timeout: 10 * time.Second})
-}
-
-func moderationService(ctx context.Context, roomID string) (context.Context, roomModerationService, error) {
-	key, secret := os.Getenv("LIVEKIT_API_KEY"), os.Getenv("LIVEKIT_API_SECRET")
-	if key == "" || secret == "" {
-		return ctx, nil, errors.New("LiveKit credentials missing")
-	}
-	endpoint := os.Getenv("LIVEKIT_INTERNAL_URL")
-	if endpoint == "" {
-		endpoint = liveKitURL()
-	}
-	parsed, err := url.Parse(endpoint)
-	if err != nil {
-		return ctx, nil, err
-	}
-	if parsed.Scheme == "ws" {
-		parsed.Scheme = "http"
-	}
-	if parsed.Scheme == "wss" {
-		parsed.Scheme = "https"
-	}
-	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
-		return ctx, nil, errors.New("invalid LiveKit service URL")
-	}
-	token, err := auth.NewAccessToken(key, secret).SetValidFor(time.Minute).
-		SetVideoGrant(&auth.VideoGrant{Room: roomID, RoomAdmin: true, RoomCreate: true}).ToJWT()
-	if err != nil {
-		return ctx, nil, err
-	}
-	headers := http.Header{}
-	headers.Set("Authorization", "Bearer "+token)
-	ctx, err = twirp.WithHTTPRequestHeaders(ctx, headers)
-	if err != nil {
-		return ctx, nil, err
-	}
-	return ctx, newModerationService(strings.TrimRight(parsed.String(), "/")), nil
-}
-
+// ownerRoom loads the room named in the path and checks that the caller owns
+// it. It writes the error response itself and reports whether to continue.
 func ownerRoom(c *gin.Context, allowClosed bool) (models.Room, bool) {
 	var room models.Room
 	if err := database.DB.Where("room_id = ?", c.Param("room_id")).First(&room).Error; err != nil {
@@ -96,7 +48,7 @@ func ownerRoom(c *gin.Context, allowClosed bool) (models.Room, bool) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Bu işlem yalnızca oda yöneticisine açık"})
 		return room, false
 	}
-	if !allowClosed && room.Status != "active" {
+	if !allowClosed && room.Status != models.RoomStatusActive {
 		c.JSON(http.StatusConflict, gin.H{"error": "Oda aktif değil"})
 		return room, false
 	}
@@ -110,36 +62,29 @@ func CloseRoom(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if room.Status == "closed" {
-		c.JSON(http.StatusOK, gin.H{"status": "closed"})
+	if room.Status == models.RoomStatusClosed {
+		c.JSON(http.StatusOK, gin.H{"status": models.RoomStatusClosed})
 		return
 	}
-	ctx, service, err := moderationService(c.Request.Context(), room.RoomID)
+	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
 		return
 	}
 	// Deny new join tokens before terminating active media sessions.
-	if err = database.DB.Model(&room).Update("status", "closing").Error; err != nil {
+	if err = database.DB.Model(&room).Update("status", models.RoomStatusClosing).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda kapatma işlemi başlatılamadı"})
 		return
 	}
-	if _, err = service.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: room.RoomID}); err != nil {
-		var rpcErr twirp.Error
-		if !errors.As(err, &rpcErr) || rpcErr.Code() != twirp.NotFound {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Oda katılıma kapatıldı fakat mevcut bağlantılar sonlandırılamadı. Tekrar deneyin."})
-			return
-		}
+	if _, err = service.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: room.RoomID}); err != nil && !isTwirpNotFound(err) {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Oda katılıma kapatıldı fakat mevcut bağlantılar sonlandırılamadı. Tekrar deneyin."})
+		return
 	}
-	if err = database.DB.Model(&room).Update("status", "closed").Error; err != nil {
+	if err = database.DB.Model(&room).Update("status", models.RoomStatusClosed).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Oda kapandı fakat durum kaydedilemedi. Tekrar deneyin."})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "closed"})
-}
-
-func nonMicrophoneSources() []livekit.TrackSource {
-	return []livekit.TrackSource{livekit.TrackSource_CAMERA, livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO}
+	c.JSON(http.StatusOK, gin.H{"status": models.RoomStatusClosed})
 }
 
 func microphoneLocked(roomID string, userID uint) (bool, error) {
@@ -151,6 +96,8 @@ func microphoneLocked(roomID string, userID uint) (bool, error) {
 	return lock.Locked, err
 }
 
+// participantUserID extracts the user ID from a LiveKit identity of the form
+// "user-<id>-<uuid>" as issued by makeRoomResponse.
 func participantUserID(identity string) (uint, error) {
 	parts := strings.SplitN(identity, "-", 3)
 	if len(parts) != 3 || parts[0] != "user" {
@@ -188,7 +135,7 @@ func SetParticipantMicrophone(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Katılımcı kimliği geçersiz"})
 		return
 	}
-	ctx, service, err := moderationService(c.Request.Context(), room.RoomID)
+	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
 		return
@@ -220,7 +167,7 @@ func SetParticipantMicrophone(c *gin.Context) {
 		if parseErr != nil || id != targetID {
 			continue
 		}
-		if err = applyMicrophonePolicy(ctx, service, room.RoomID, p, *input.Locked, input.RequestUnmute); err != nil {
+		if err = applyMicrophonePolicy(ctx, service, room, p, *input.Locked, input.RequestUnmute); err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "Mikrofon politikası kaydedildi fakat tüm oturumlara uygulanamadı. Tekrar deneyin."})
 			return
 		}
@@ -228,7 +175,7 @@ func SetParticipantMicrophone(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"locked": *input.Locked, "unmute_requested": input.RequestUnmute})
 }
 
-func applyMicrophonePolicy(ctx context.Context, service roomModerationService, roomID string, p *livekit.ParticipantInfo, locked, requestUnmute bool) error {
+func applyMicrophonePolicy(ctx context.Context, service liveKitRoomService, room models.Room, p *livekit.ParticipantInfo, locked, requestUnmute bool) error {
 	if p.Permission == nil {
 		return errors.New("participant permissions unavailable")
 	}
@@ -246,7 +193,7 @@ func applyMicrophonePolicy(ctx context.Context, service roomModerationService, r
 		}
 		sources := permission.CanPublishSources
 		if len(sources) == 0 && permission.CanPublish {
-			sources = nonMicrophoneSources()
+			sources = allPublishSources()
 		}
 		permission.CanPublishSources = nil
 		for _, source := range sources {
@@ -274,13 +221,10 @@ func applyMicrophonePolicy(ctx context.Context, service roomModerationService, r
 			attrs[microphoneRequestAttribute] = uuid.NewString()
 		}
 	}
-	var room models.Room
-	if err := database.DB.Where("room_id = ?", roomID).First(&room).Error; err != nil {
-		return err
-	}
+	// Never restore screen sources from an old backup: only the current
+	// screen-share holder may keep them.
 	restrictScreenShare(permission, p.Identity == room.ScreenShareIdentity)
-	permission.CanUpdateMetadata = false
-	if _, err := service.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{Room: roomID, Identity: p.Identity, Permission: permission, Attributes: attrs}); err != nil {
+	if _, err := service.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{Room: room.RoomID, Identity: p.Identity, Permission: permission, Attributes: attrs}); err != nil {
 		return err
 	}
 	if locked {
@@ -288,12 +232,9 @@ func applyMicrophonePolicy(ctx context.Context, service roomModerationService, r
 			if track.Source != livekit.TrackSource_MICROPHONE {
 				continue
 			}
-			if _, err := service.MutePublishedTrack(ctx, &livekit.MuteRoomTrackRequest{Room: roomID, Identity: p.Identity, TrackSid: track.Sid, Muted: true}); err != nil {
-				// Source revocation may already have unpublished the microphone.
-				var rpcErr twirp.Error
-				if !errors.As(err, &rpcErr) || rpcErr.Code() != twirp.NotFound {
-					return fmt.Errorf("mute microphone: %w", err)
-				}
+			// Source revocation may already have unpublished the microphone.
+			if _, err := service.MutePublishedTrack(ctx, &livekit.MuteRoomTrackRequest{Room: room.RoomID, Identity: p.Identity, TrackSid: track.Sid, Muted: true}); err != nil && !isTwirpNotFound(err) {
+				return fmt.Errorf("mute microphone: %w", err)
 			}
 		}
 	}

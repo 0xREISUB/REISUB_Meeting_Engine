@@ -2,25 +2,49 @@ package controllers
 
 import (
 	"context"
+	"net/http"
+	"time"
+
+	"reisub-backend/database"
+	"reisub-backend/models"
+
 	"github.com/gin-gonic/gin"
 	"github.com/livekit/protocol/livekit"
 	"google.golang.org/protobuf/proto"
-	"net/http"
-	"reisub-backend/database"
-	"reisub-backend/models"
-	"time"
 )
 
-// All admission, permission updates, settings and closure share the room lock.
-// Join JWTs never grant screen sources; only the selected live identity gets them.
+// Screen sharing is exclusive per room. Join JWTs never grant screen sources;
+// only the live identity holding the room's slot receives them through
+// UpdateParticipant. Admission, permission updates, settings and closure all
+// run under the room lifecycle lock.
+
+// screenShareStartGrace is how long a new holder has to publish its screen
+// track before the reservation counts as abandoned.
+const screenShareStartGrace = 30 * time.Second
+
+func allPublishSources() []livekit.TrackSource {
+	return []livekit.TrackSource{
+		livekit.TrackSource_CAMERA,
+		livekit.TrackSource_MICROPHONE,
+		livekit.TrackSource_SCREEN_SHARE,
+		livekit.TrackSource_SCREEN_SHARE_AUDIO,
+	}
+}
+
+func isScreenSource(source livekit.TrackSource) bool {
+	return source == livekit.TrackSource_SCREEN_SHARE || source == livekit.TrackSource_SCREEN_SHARE_AUDIO
+}
+
+// restrictScreenShare adds or removes both screen sources while preserving
+// every other publish permission.
 func restrictScreenShare(permission *livekit.ParticipantPermission, allowed bool) {
 	sources := permission.CanPublishSources
 	if len(sources) == 0 && permission.CanPublish {
-		sources = []livekit.TrackSource{livekit.TrackSource_CAMERA, livekit.TrackSource_MICROPHONE, livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO}
+		sources = allPublishSources()
 	}
 	filtered := []livekit.TrackSource{}
 	for _, s := range sources {
-		if s != livekit.TrackSource_SCREEN_SHARE && s != livekit.TrackSource_SCREEN_SHARE_AUDIO {
+		if !isScreenSource(s) {
 			filtered = append(filtered, s)
 		}
 	}
@@ -28,13 +52,14 @@ func restrictScreenShare(permission *livekit.ParticipantPermission, allowed bool
 		filtered = append(filtered, livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO)
 	}
 	permission.CanPublishSources = filtered
+	// An empty source list means unrestricted when CanPublish remains true.
 	if len(filtered) == 0 {
 		permission.CanPublish = false
 	}
 	permission.CanUpdateMetadata = false
 }
 
-func setScreenPermission(ctx context.Context, svc roomModerationService, roomID string, p *livekit.ParticipantInfo, allowed bool) error {
+func setScreenPermission(ctx context.Context, svc liveKitRoomService, roomID string, p *livekit.ParticipantInfo, allowed bool) error {
 	if p.Permission == nil {
 		return nil
 	}
@@ -47,27 +72,31 @@ func setScreenPermission(ctx context.Context, svc roomModerationService, roomID 
 	return err
 }
 
-func activeMeeting(c *gin.Context) (models.Room, bool) {
+// activeRoom loads the active room named in the path. It writes the error
+// response itself and reports whether to continue.
+func activeRoom(c *gin.Context) (models.Room, bool) {
 	var room models.Room
-	if err := database.DB.Where("room_id = ? AND status = ?", c.Param("room_id"), "active").First(&room).Error; err != nil {
+	if err := database.DB.Where("room_id = ? AND status = ?", c.Param("room_id"), models.RoomStatusActive).First(&room).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Oda bulunamadı veya kapatıldı"})
 		return room, false
 	}
 	return room, true
 }
-func screenParticipants(c *gin.Context, room models.Room) (context.Context, roomModerationService, []*livekit.ParticipantInfo, bool) {
-	ctx, svc, err := moderationService(c.Request.Context(), room.RoomID)
+
+func listRoomParticipants(c *gin.Context, room models.Room) (context.Context, liveKitRoomService, []*livekit.ParticipantInfo, bool) {
+	ctx, svc, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
-		c.JSON(503, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Toplantı sunucusu yapılandırılmamış"})
 		return ctx, svc, nil, false
 	}
 	list, err := svc.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: room.RoomID})
 	if err != nil {
-		c.JSON(502, gin.H{"error": "Katılımcılar alınamadı"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Katılımcılar alınamadı"})
 		return ctx, svc, nil, false
 	}
 	return ctx, svc, list.Participants, true
 }
+
 func saveShare(room *models.Room, identity string, until int64) error {
 	if err := database.DB.Model(room).Updates(map[string]interface{}{"screen_share_identity": identity, "screen_share_lease_until": until}).Error; err != nil {
 		return err
@@ -76,7 +105,10 @@ func saveShare(room *models.Room, identity string, until int64) error {
 	room.ScreenShareLeaseUntil = until
 	return nil
 }
-func releaseStaleShare(ctx context.Context, svc roomModerationService, room *models.Room, ps []*livekit.ParticipantInfo) error {
+
+// releaseStaleShare frees the slot when its holder has left the room, or has
+// no live screen track after the start grace period.
+func releaseStaleShare(ctx context.Context, svc liveKitRoomService, room *models.Room, ps []*livekit.ParticipantInfo) error {
 	if room.ScreenShareIdentity == "" {
 		return nil
 	}
@@ -98,26 +130,29 @@ func releaseStaleShare(ctx context.Context, svc roomModerationService, room *mod
 	}
 	return saveShare(room, "", 0)
 }
+
 func meetingState(room models.Room) gin.H {
 	return gin.H{"allow_participant_screen_share": room.AllowParticipantScreenShare, "screen_share_identity": room.ScreenShareIdentity}
 }
+
 func GetMeetingState(c *gin.Context) {
 	release := lockRoomLifecycle(c.Param("room_id"))
 	defer release()
-	room, ok := activeMeeting(c)
+	room, ok := activeRoom(c)
 	if !ok {
 		return
 	}
-	ctx, svc, ps, ok := screenParticipants(c, room)
+	ctx, svc, ps, ok := listRoomParticipants(c, room)
 	if !ok {
 		return
 	}
 	if err := releaseStaleShare(ctx, svc, &room, ps); err != nil {
-		c.JSON(502, gin.H{"error": "Paylaşım durumu güncellenemedi"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım durumu güncellenemedi"})
 		return
 	}
-	c.JSON(200, meetingState(room))
+	c.JSON(http.StatusOK, meetingState(room))
 }
+
 func UpdateMeetingSettings(c *gin.Context) {
 	release := lockRoomLifecycle(c.Param("room_id"))
 	defer release()
@@ -129,72 +164,73 @@ func UpdateMeetingSettings(c *gin.Context) {
 		Allowed *bool `json:"allow_participant_screen_share"`
 	}
 	if c.ShouldBindJSON(&input) != nil || input.Allowed == nil {
-		c.JSON(400, gin.H{"error": "Paylaşım izni gerekli"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Paylaşım izni gerekli"})
 		return
 	}
 	// Save the restriction before touching media so failures never admit new guests.
 	if err := database.DB.Model(&room).Update("allow_participant_screen_share", *input.Allowed).Error; err != nil {
-		c.JSON(500, gin.H{"error": "Ayar kaydedilemedi"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ayar kaydedilemedi"})
 		return
 	}
 	room.AllowParticipantScreenShare = *input.Allowed
 	if !*input.Allowed && room.ScreenShareIdentity != "" {
 		uid, _ := participantUserID(room.ScreenShareIdentity)
 		if uid != room.OwnerID {
-			ctx, svc, ps, ok := screenParticipants(c, room)
+			ctx, svc, ps, ok := listRoomParticipants(c, room)
 			if !ok {
 				return
 			}
 			for _, p := range ps {
 				if p.Identity == room.ScreenShareIdentity {
 					if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
-						c.JSON(502, gin.H{"error": "İzin kapatıldı fakat paylaşım durdurulamadı. Tekrar deneyin."})
+						c.JSON(http.StatusBadGateway, gin.H{"error": "İzin kapatıldı fakat paylaşım durdurulamadı. Tekrar deneyin."})
 						return
 					}
 				}
 			}
 			if err := saveShare(&room, "", 0); err != nil {
-				c.JSON(500, gin.H{"error": "Paylaşım durumu kaydedilemedi"})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Paylaşım durumu kaydedilemedi"})
 				return
 			}
 		}
 	}
-	c.JSON(200, meetingState(room))
+	c.JSON(http.StatusOK, meetingState(room))
 }
+
 func StartScreenShare(c *gin.Context) {
 	release := lockRoomLifecycle(c.Param("room_id"))
 	defer release()
-	room, ok := activeMeeting(c)
+	room, ok := activeRoom(c)
 	if !ok {
 		return
 	}
 	user := c.MustGet("user").(models.User)
 	if user.ID != room.OwnerID && !room.AllowParticipantScreenShare {
-		c.JSON(403, gin.H{"error": "Oda sahibi katılımcıların ekran paylaşmasına izin vermiyor"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Oda sahibi katılımcıların ekran paylaşmasına izin vermiyor"})
 		return
 	}
 	var input struct {
 		Identity string `json:"identity"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
-		c.JSON(400, gin.H{"error": "Katılımcı kimliği gerekli"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Katılımcı kimliği gerekli"})
 		return
 	}
 	uid, err := participantUserID(input.Identity)
 	if err != nil || uid != user.ID {
-		c.JSON(403, gin.H{"error": "Yalnızca kendi oturumunuzdan paylaşabilirsiniz"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Yalnızca kendi oturumunuzdan paylaşabilirsiniz"})
 		return
 	}
-	ctx, svc, ps, ok := screenParticipants(c, room)
+	ctx, svc, ps, ok := listRoomParticipants(c, room)
 	if !ok {
 		return
 	}
 	if err := releaseStaleShare(ctx, svc, &room, ps); err != nil {
-		c.JSON(502, gin.H{"error": "Paylaşım durumu alınamadı"})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım durumu alınamadı"})
 		return
 	}
 	if room.ScreenShareIdentity != "" && room.ScreenShareIdentity != input.Identity {
-		c.JSON(409, gin.H{"error": "Başka bir katılımcı ekranını paylaşıyor"})
+		c.JSON(http.StatusConflict, gin.H{"error": "Başka bir katılımcı ekranını paylaşıyor"})
 		return
 	}
 	var target *livekit.ParticipantInfo
@@ -204,36 +240,37 @@ func StartScreenShare(c *gin.Context) {
 		}
 	}
 	if target == nil {
-		c.JSON(404, gin.H{"error": "Önce toplantıya bağlanın"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Önce toplantıya bağlanın"})
 		return
 	}
 	if target.Permission == nil || !target.Permission.CanPublish {
-		c.JSON(403, gin.H{"error": "Bu oturumun yayın izni yok"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Bu oturumun yayın izni yok"})
 		return
 	}
-	if err := saveShare(&room, input.Identity, time.Now().Add(30*time.Second).Unix()); err != nil {
-		c.JSON(500, gin.H{"error": "Paylaşım başlatılamadı"})
+	if err := saveShare(&room, input.Identity, time.Now().Add(screenShareStartGrace).Unix()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Paylaşım başlatılamadı"})
 		return
 	}
 	// Revoke every other publisher before granting the selected one.
 	for _, p := range ps {
 		if p.Identity != input.Identity {
 			if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
-				c.JSON(502, gin.H{"error": "Paylaşım izinleri güncellenemedi"})
+				c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım izinleri güncellenemedi"})
 				return
 			}
 		}
 	}
 	if err := setScreenPermission(ctx, svc, room.RoomID, target, true); err != nil {
-		c.JSON(502, gin.H{"error": "Paylaşım izni verilemedi. Tekrar deneyin."})
+		c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım izni verilemedi. Tekrar deneyin."})
 		return
 	}
-	c.JSON(200, meetingState(room))
+	c.JSON(http.StatusOK, meetingState(room))
 }
+
 func StopScreenShare(c *gin.Context) {
 	release := lockRoomLifecycle(c.Param("room_id"))
 	defer release()
-	room, ok := activeMeeting(c)
+	room, ok := activeRoom(c)
 	if !ok {
 		return
 	}
@@ -241,38 +278,38 @@ func StopScreenShare(c *gin.Context) {
 		Identity string `json:"identity"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
-		c.JSON(400, gin.H{"error": "Katılımcı kimliği gerekli"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Katılımcı kimliği gerekli"})
 		return
 	}
 	user := c.MustGet("user").(models.User)
 	uid, err := participantUserID(input.Identity)
 	if err != nil || (uid != user.ID && user.ID != room.OwnerID) {
-		c.JSON(403, gin.H{"error": "Bu paylaşımı durdurma yetkiniz yok"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Bu paylaşımı durdurma yetkiniz yok"})
 		return
 	}
 	if room.ScreenShareIdentity == "" {
-		c.JSON(200, meetingState(room))
+		c.JSON(http.StatusOK, meetingState(room))
 		return
 	}
 	if input.Identity != room.ScreenShareIdentity {
-		c.JSON(409, gin.H{"error": "Başka bir oturum ekran paylaşıyor"})
+		c.JSON(http.StatusConflict, gin.H{"error": "Başka bir oturum ekran paylaşıyor"})
 		return
 	}
-	ctx, svc, ps, ok := screenParticipants(c, room)
+	ctx, svc, ps, ok := listRoomParticipants(c, room)
 	if !ok {
 		return
 	}
 	for _, p := range ps {
 		if p.Identity == input.Identity {
 			if err := setScreenPermission(ctx, svc, room.RoomID, p, false); err != nil {
-				c.JSON(502, gin.H{"error": "Paylaşım durdurulamadı"})
+				c.JSON(http.StatusBadGateway, gin.H{"error": "Paylaşım durdurulamadı"})
 				return
 			}
 		}
 	}
 	if err := saveShare(&room, "", 0); err != nil {
-		c.JSON(500, gin.H{"error": "Paylaşım durumu kaydedilemedi"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Paylaşım durumu kaydedilemedi"})
 		return
 	}
-	c.JSON(200, meetingState(room))
+	c.JSON(http.StatusOK, meetingState(room))
 }

@@ -7,8 +7,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// SetupRoutes registers the public HTTP API.
 func SetupRoutes(r *gin.Engine) {
-	// Sistem Test Rotası
+	// Health check used by clients to verify the server address.
 	r.GET("/ping", controllers.Ping)
 
 	r.POST("/register", controllers.Register)
