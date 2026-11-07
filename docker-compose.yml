@@ -21,6 +21,9 @@ services:
       WEB_DIR: /web
       # Public origin of the web app; enables invite_url (<origin>/j/<room>).
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-}
+      # Nginx Proxy Manager reaches the backend from a Docker network; trust
+      # its X-Forwarded-For so per-IP limits see the real client.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
     volumes:

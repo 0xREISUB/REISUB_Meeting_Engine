@@ -18,7 +18,7 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Logger(), apierror.Recovery())
-	if err := r.SetTrustedProxies(nil); err != nil {
+	if err := r.SetTrustedProxies(trustedProxies(os.Getenv("TRUSTED_PROXIES"))); err != nil {
 		log.Fatal("Güvenilir proxy ayarı yapılandırılamadı: ", err)
 	}
 	r.Use(corsMiddleware())
@@ -32,6 +32,20 @@ func main() {
 	if err := r.Run(":" + port); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// trustedProxies parses TRUSTED_PROXIES, a comma-separated list of IPs or
+// CIDRs (e.g. the reverse proxy's Docker network, 172.16.0.0/12). Only
+// requests arriving from these addresses may set the client IP through
+// X-Forwarded-For/X-Real-IP; empty means none, so the TCP peer is the client.
+func trustedProxies(value string) []string {
+	var proxies []string
+	for _, proxy := range strings.Split(value, ",") {
+		if proxy = strings.TrimSpace(proxy); proxy != "" {
+			proxies = append(proxies, proxy)
+		}
+	}
+	return proxies
 }
 
 func corsMiddleware() gin.HandlerFunc {
