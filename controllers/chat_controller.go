@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
 
@@ -27,13 +28,13 @@ func ListRoomMessages(c *gin.Context) {
 	user := c.MustGet("user").(models.User)
 	roomID := c.Param("room_id")
 	if !activeRoomExists(roomID) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Oda bulunamadı"})
+		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
 		return
 	}
 
 	var messages []models.ChatMessage
 	if err := database.DB.Where("room_id = ?", roomID).Order("id DESC").Limit(200).Find(&messages).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Mesajlar alınamadı"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Mesajlar alınamadı")
 		return
 	}
 
@@ -47,18 +48,18 @@ func ListRoomMessages(c *gin.Context) {
 func SendRoomMessage(c *gin.Context) {
 	var input chatMessageRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Mesaj gerekli"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidMessage, "Mesaj gerekli")
 		return
 	}
 	content := strings.TrimSpace(input.Content)
 	if content == "" || len([]rune(content)) > 1000 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Mesaj 1-1000 karakter olmalı"})
+		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidMessage, "Mesaj 1-1000 karakter olmalı")
 		return
 	}
 
 	roomID := c.Param("room_id")
 	if !activeRoomExists(roomID) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Oda bulunamadı"})
+		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
 		return
 	}
 
@@ -70,7 +71,7 @@ func SendRoomMessage(c *gin.Context) {
 		Content:  content,
 	}
 	if err := database.DB.Create(&message).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Mesaj gönderilemedi"})
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Mesaj gönderilemedi")
 		return
 	}
 	c.JSON(http.StatusCreated, formatChatMessage(message, user.ID))

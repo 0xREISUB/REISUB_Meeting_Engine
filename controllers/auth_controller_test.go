@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
 
@@ -41,20 +42,17 @@ func TestRegisterAndLoginTrimNick(t *testing.T) {
 		}
 	}
 	// The password is not trimmed.
-	if w := jsonRequest(r, http.MethodPost, "/login", "", `{"nick":"alice","password":"secret"}`); w.Code != http.StatusUnauthorized {
-		t.Fatalf("trimmed password accepted: %d", w.Code)
-	}
+	assertAPIError(t, jsonRequest(r, http.MethodPost, "/login", "", `{"nick":"alice","password":"secret"}`),
+		http.StatusUnauthorized, apierror.WrongPassword, "Hatalı şifre")
+	assertAPIError(t, jsonRequest(r, http.MethodPost, "/login", "", `{"nick":"nobody","password":"x"}`),
+		http.StatusUnauthorized, apierror.UserNotFound, "Kullanıcı bulunamadı")
 }
 
 func TestRegisterRejectsBlankNickAndTrimmedDuplicate(t *testing.T) {
 	r := authTestRouter(t)
 	for _, body := range []string{`{"nick":"   ","password":"x"}`, `{"nick":"\t\n","password":"x"}`, `{"nick":"","password":"x"}`, `{"nick":"bob"}`} {
-		if w := jsonRequest(r, http.MethodPost, "/register", "", body); w.Code != http.StatusBadRequest {
-			t.Fatalf("register %s: %d", body, w.Code)
-		}
-		if w := jsonRequest(r, http.MethodPost, "/login", "", body); w.Code != http.StatusBadRequest {
-			t.Fatalf("login %s: %d", body, w.Code)
-		}
+		assertAPIError(t, jsonRequest(r, http.MethodPost, "/register", "", body), http.StatusBadRequest, apierror.MissingCredentials, "Eksik bilgi gönderildi")
+		assertAPIError(t, jsonRequest(r, http.MethodPost, "/login", "", body), http.StatusBadRequest, apierror.MissingCredentials, "Eksik bilgi")
 	}
 	var count int64
 	database.DB.Model(&models.User{}).Count(&count)
@@ -64,17 +62,15 @@ func TestRegisterRejectsBlankNickAndTrimmedDuplicate(t *testing.T) {
 	if w := jsonRequest(r, http.MethodPost, "/register", "", `{"nick":"bob","password":"x"}`); w.Code != http.StatusOK {
 		t.Fatal(w.Code)
 	}
-	if w := jsonRequest(r, http.MethodPost, "/register", "", `{"nick":" bob ","password":"y"}`); w.Code != http.StatusBadRequest {
-		t.Fatalf("duplicate after trimming accepted: %d", w.Code)
-	}
+	assertAPIError(t, jsonRequest(r, http.MethodPost, "/register", "", `{"nick":" bob ","password":"y"}`),
+		http.StatusBadRequest, apierror.NickTaken, "Bu nick kullanımda")
 }
 
 func TestRegisterRejectsPasswordBcryptCannotHash(t *testing.T) {
 	r := authTestRouter(t)
 	long := strings.Repeat("a", maxPasswordBytes+1)
-	if w := jsonRequest(r, http.MethodPost, "/register", "", `{"nick":"carol","password":"`+long+`"}`); w.Code != http.StatusBadRequest {
-		t.Fatalf("over-long password: %d %s", w.Code, w.Body.String())
-	}
+	assertAPIError(t, jsonRequest(r, http.MethodPost, "/register", "", `{"nick":"carol","password":"`+long+`"}`),
+		http.StatusBadRequest, apierror.PasswordTooLong, "Şifre en fazla 72 bayt olabilir")
 	var count int64
 	database.DB.Model(&models.User{}).Count(&count)
 	if count != 0 {

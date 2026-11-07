@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/middleware"
 	"reisub-backend/models"
@@ -115,12 +116,9 @@ func microphonePath() string {
 func TestModerationRequiresAuthenticatedOwner(t *testing.T) {
 	r, f := moderationTestRouter(t)
 	for _, path := range []string{"/rooms/123-456-789/close", microphonePath()} {
-		if w := moderationRequest(r, path, "", `{"locked":true}`); w.Code != 401 {
-			t.Fatalf("unauthenticated %s: %d", path, w.Code)
-		}
-		if w := moderationRequest(r, path, "guest-token", `{"locked":true}`); w.Code != 403 {
-			t.Fatalf("non-owner %s: %d", path, w.Code)
-		}
+		assertAPIError(t, moderationRequest(r, path, "", `{"locked":true}`), 401, apierror.AuthRequired, "Kimlik doğrulaması gerekli")
+		assertAPIError(t, moderationRequest(r, path, "expired-token", `{"locked":true}`), 401, apierror.InvalidToken, "Geçersiz token")
+		assertAPIError(t, moderationRequest(r, path, "guest-token", `{"locked":true}`), 403, apierror.NotRoomOwner, "Bu işlem yalnızca oda yöneticisine açık")
 	}
 	if f.updates != 0 || f.deletes != 0 {
 		t.Fatal("unauthorized request reached LiveKit")

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"reisub-backend/apierror"
 	"reisub-backend/controllers"
 	"reisub-backend/middleware"
 
@@ -9,6 +10,8 @@ import (
 
 // SetupRoutes registers the public HTTP API.
 func SetupRoutes(r *gin.Engine) {
+	r.NoRoute(apierror.NoRoute)
+
 	// Health check used by clients to verify the server address.
 	r.GET("/ping", controllers.Ping)
 
