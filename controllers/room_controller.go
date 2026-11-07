@@ -125,6 +125,10 @@ func JoinRoom(c *gin.Context) {
 		return
 	}
 	user := c.MustGet("user").(models.User)
+	if err = claimOwnershipOnJoin(ctx, service, &room, user.ID); err != nil {
+		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Oda sahipliği güncellenemedi. Tekrar deneyin.")
+		return
+	}
 	role, err := effectiveRole(room.RoomID, user.ID)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
