@@ -150,6 +150,7 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 	g.POST("/:room_id/participants/:identity/microphone", SetParticipantMicrophone)
 	g.POST("/:room_id/participants/:identity/role", SetParticipantRole)
 	g.POST("/:room_id/transfer-ownership", TransferOwnership)
+	g.POST("/:room_id/leave", LeaveRoom)
 	return r, f
 }
 func moderationRequest(r *gin.Engine, path, token, body string) *httptest.ResponseRecorder {
