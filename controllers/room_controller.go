@@ -38,6 +38,9 @@ type roomResponse struct {
 	// the moderation controls; Role is the precise room role.
 	IsHost bool   `json:"is_host"`
 	Role   string `json:"role"`
+	// InviteURL is PUBLIC_WEB_URL + "/j/" + room ID; omitted when
+	// PUBLIC_WEB_URL is not configured.
+	InviteURL string `json:"invite_url,omitempty"`
 }
 
 func CreateRoom(c *gin.Context) {
@@ -212,7 +215,18 @@ func makeRoomResponse(room models.Room, userID uint, participant, role string) (
 		Participant: participant,
 		IsHost:      roleRank(role) >= roleRank(models.RoleModerator),
 		Role:        role,
+		InviteURL:   inviteURL(room.RoomID),
 	}, nil
 }
 
 func boolPtr(value bool) *bool { return &value }
+
+// inviteURL is the short invite link for a room, served by the web app at
+// PUBLIC_WEB_URL (e.g. https://meeting.reisub.xyz/j/123-456-789).
+func inviteURL(roomID string) string {
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_WEB_URL")), "/")
+	if base == "" {
+		return ""
+	}
+	return base + "/j/" + roomID
+}
