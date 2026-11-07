@@ -84,21 +84,57 @@ To change settings, edit `config/stack.env` and run the last command. Restarts
 and container recreation keep the database volume. Do not use
 `docker compose down -v` unless you intentionally want to delete the database.
 
-## Room owner controls
+## Room roles
 
-The authenticated user who creates a room is its owner. Owner privileges are
-checked by the backend against `Room.OwnerID`; clients receive no direct LiveKit
-room-admin grant.
+Every room has per-user roles, stored in `room_roles` and checked by the
+backend; clients never receive a LiveKit room-admin grant. Roles follow the
+user ID, so reconnecting or joining from another device keeps them.
 
-- `POST /rooms/:room_id/close` closes the room to new joins and deletes its LiveKit
-  media session. Closing can be retried safely after a transport failure.
-- `POST /rooms/:room_id/participants/:identity/microphone` accepts
-  `{"locked":true}` to mute and lock the microphone. The policy applies to the
-  user's current sessions and persists in SQLite for subsequent joins.
-- Send `{"locked":false}` to unlock, or
-  `{"locked":false,"request_unmute":true}` to unlock and ask the participant to
-  enable their microphone. The client must accept the request; remote unmute is
-  not enabled.
+| Role | Can |
+| --- | --- |
+| `owner` | everything a moderator can, change anyone's role, transfer ownership, moderate moderators. A room may have several owners. |
+| `moderator` | lock/unlock microphones and request unmute, change the participant screen-share setting, share their own screen regardless of that setting, stop another participant's share, end the meeting |
+| `participant` | nothing privileged (no row in `room_roles`) |
+
+Nobody can lock, request, or stop the share of an owner, and moderators cannot
+act on other moderators. The user who creates a room is its first owner;
+`Room.OwnerID` only records the creator and is not used for authorization.
+
+Each participant's role is published as the LiveKit participant attribute
+`meeting.role` (`"owner"`, `"moderator"`, or empty) in the join token and on
+every change, so clients update live.
+
+- `POST /rooms/:room_id/participants/:identity/role` `{"role":"owner"|"moderator"|"participant"}`
+  (owners only). An owner may step down only while another owner is connected.
+- `POST /rooms/:room_id/transfer-ownership` `{"identity":"..."}` (owners only):
+  the connected target becomes owner, the caller becomes moderator.
+- `POST /rooms/:room_id/leave`: the caller is leaving on purpose.
+- `POST /rooms/:room_id/close` (owner or moderator) closes the room to new joins
+  and deletes its LiveKit media session. Closing can be retried safely.
+- `POST /rooms/:room_id/participants/:identity/microphone` (owner or moderator)
+  accepts `{"locked":true}` to mute and lock the microphone, `{"locked":false}`
+  to unlock, or `{"locked":false,"request_unmute":true}` to unlock and ask the
+  participant to enable it. Locks persist for later joins; remote unmute is not
+  enabled. Becoming an owner lifts a lock.
+
+### Owner succession
+
+When no owner remains connected (after `POST /leave`, or when LiveKit reports
+`participant_left`/`room_finished` through the webhook):
+
+1. the connected moderator who has been a moderator longest, otherwise
+2. a uniformly random connected participant becomes an **acting owner**;
+3. if nobody is connected, the next user to call `POST /rooms/join` does.
+
+Owners who were away are suspended, not demoted. When any of them rejoins they
+are owner again and every acting owner returns to their previous role. An acting
+owner who leaves simply reverts. An explicit role change by an owner makes a role
+permanent and ends any reclaim right. Succession is idempotent, so `/leave` and
+the webhook may both arrive.
+
+LiveKit posts its events to `http://backend:$PORT/livekit/webhook`
+(configured in `docker-compose.yml`), signed with the LiveKit API key and
+secret; unsigned or tampered requests are rejected with `401`.
 
 Microphone locks revoke the microphone publishing source while preserving other
 media permissions. LiveKit participant attributes deliver locks and requests to
@@ -118,22 +154,22 @@ until it expires; freshly requested join tokens always apply the stored lock.
 
 ### Screen sharing and meeting settings
 
-`allow_participant_screen_share` defaults to `false` for new rooms. The owner
-may always request to share; other participants may share only when the owner
-enables the setting. Turning it off again stops the current participant's share
-from the server. Only one session per room, the owner included, may share at a
-time.
+`allow_participant_screen_share` defaults to `false` for new rooms. Owners and
+moderators may always request to share; participants may share only when an
+owner or moderator enables the setting. Turning it off again stops a
+participant's current share from the server (an owner's or moderator's share
+continues). Only one session per room may share at a time.
 
 Authenticated API:
 
 - `GET /rooms/:room_id/state`: the sharing setting and `screen_share_identity`.
-- `POST /rooms/:room_id/settings`: owner only,
+- `POST /rooms/:room_id/settings`: owner or moderator,
   `{"allow_participant_screen_share": true|false}`.
 - `POST /rooms/:room_id/screen-share/start`: `{"identity":"user-ID-UUID"}`;
   only a connected session of the requesting user is granted. Returns `409` if
   another session holds the slot.
 - `POST /rooms/:room_id/screen-share/stop`: stops the share for that identity
-  (the holder or the room owner).
+  (the holder, or an owner/moderator allowed to act on them).
 
 All four return `{"allow_participant_screen_share": bool, "screen_share_identity": string}`.
 
@@ -209,7 +245,12 @@ the session token is missing or expired.
 | `invalid_room_request` | Display name or `NNN-NNN-NNN` room code missing |
 | `room_not_found` | Room does not exist or is not active |
 | `room_not_active` | Room is closing or closed |
-| `not_room_owner` | Only the room owner may do this |
+| `not_room_owner` | Only an owner or moderator may do this |
+| `owner_required` | Only an owner may do this |
+| `target_protected` | Target is an owner, or a moderator acted on by a moderator |
+| `invalid_role` | Role must be `owner`, `moderator` or `participant` |
+| `last_owner` | An owner may step down only while another owner is connected |
+| `invalid_webhook` | LiveKit webhook signature missing or invalid (401) |
 | `invalid_identity` | Malformed participant identity |
 | `identity_not_owned` | The identity belongs to another user |
 | `participant_not_found` | Identity not connected to the media room |
