@@ -53,10 +53,6 @@ func TestNoHandlerWritesUncodedErrors(t *testing.T) {
 	}
 	files = append(files, "../main.go")
 	for _, file := range files {
-		// The admin panel is a separate service with its own UI.
-		if filepath.Base(filepath.Dir(file)) == "management" {
-			continue
-		}
 		content, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)

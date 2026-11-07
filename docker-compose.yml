@@ -63,52 +63,7 @@ services:
       - "7882:7882/udp"
     restart: unless-stopped
 
-  manager:
-    networks:
-      - default
-      - proxy-agi
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: manager
-    restart: unless-stopped
-    environment:
-      GIN_MODE: release
-      MANAGER_ADDR: :8090
-      MANAGER_CONFIG_PATH: /manager-config/stack.env
-      MANAGER_ADMIN_HASH_PATH: /manager-data/admin.hash
-      MANAGER_ADMIN_PASSWORD_FILE: /manager-config/admin-init.password
-      MANAGER_COOKIE_SECURE: ${MANAGER_COOKIE_SECURE:-true}
-      MANAGER_COMPOSE_FILE: /deployment/docker-compose.yml
-      MANAGER_PROJECT_DIR: /deployment
-      MANAGER_ENV_FILE: /manager-config/stack.env
-    ports:
-      - "${MANAGER_BIND_ADDRESS:-127.0.0.1}:${MANAGER_PORT:-8090}:8090"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./docker-compose.yml:/deployment/docker-compose.yml:ro
-      - ./config:/manager-config:rw
-      - manager_data:/manager-data
-    healthcheck:
-      test:
-        - CMD
-        - wget
-        - -q
-        - -O
-        - /dev/null
-        - http://127.0.0.1:8090/_health
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
 volumes:
   backend_data:
     name: reisub-meeting-db
     external: true
-  manager_data:
-    name: reisub-meeting-manager
-networks:
-  proxy-agi:
-    external: true
-    name: proxy-agi
