@@ -20,6 +20,7 @@ import (
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var roomIDPattern = regexp.MustCompile(`^\d{3}-\d{3}-\d{3}$`)
@@ -93,6 +94,10 @@ func CreateRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda etkinleştirilemedi")
 		return
 	}
+	if err = rememberDisplayName(room.RoomID, user.ID, input.Name); err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
+		return
+	}
 	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), models.RoleOwner)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
@@ -130,6 +135,10 @@ func JoinRoom(c *gin.Context) {
 	user := c.MustGet("user").(models.User)
 	if err = claimOwnershipOnJoin(ctx, service, &room, user.ID); err != nil {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Oda sahipliği güncellenemedi. Tekrar deneyin.")
+		return
+	}
+	if err = rememberDisplayName(room.RoomID, user.ID, input.Name); err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
 		return
 	}
 	role, err := effectiveRole(room.RoomID, user.ID)
@@ -220,6 +229,30 @@ func makeRoomResponse(room models.Room, userID uint, participant, role string) (
 }
 
 func boolPtr(value bool) *bool { return &value }
+
+// rememberDisplayName stores the name the user chose for this room; the
+// latest create/join wins.
+func rememberDisplayName(roomID string, userID uint, name string) error {
+	member := models.RoomMember{RoomID: roomID, UserID: userID, DisplayName: strings.TrimSpace(name)}
+	return database.DB.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "room_id"}, {Name: "user_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"display_name", "updated_at"}),
+	}).Create(&member).Error
+}
+
+// displayName is how a user appears in a room's chat: the name they joined
+// with, otherwise their nick, and never a guest's generated nick.
+func displayName(roomID string, user models.User) string {
+	var members []models.RoomMember
+	database.DB.Where("room_id = ? AND user_id = ?", roomID, user.ID).Limit(1).Find(&members)
+	switch {
+	case len(members) > 0 && members[0].DisplayName != "":
+		return members[0].DisplayName
+	case user.IsGuest:
+		return "Misafir"
+	}
+	return user.Nick
+}
 
 // inviteURL is the short invite link for a room, served by the web app at
 // PUBLIC_WEB_URL (e.g. https://meeting.reisub.xyz/j/123-456-789).
