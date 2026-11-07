@@ -41,6 +41,13 @@ services:
     volumes:
       - backend_data:/data
       - ./web:/web:ro
+    networks:
+      default:
+      # Nginx Proxy Manager forwards meeting.reisub.xyz and
+      # api.meeting.reisub.xyz to reisub-meeting-backend:8080 on this network.
+      proxy-agi:
+        aliases:
+          - reisub-meeting-backend
     depends_on:
       - livekit
     healthcheck:
@@ -95,3 +102,7 @@ volumes:
   backend_data:
     name: reisub-meeting-db
     external: true
+networks:
+  proxy-agi:
+    external: true
+    name: proxy-agi
