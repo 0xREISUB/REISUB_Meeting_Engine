@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"reisub-backend/apierror"
@@ -23,7 +24,7 @@ func main() {
 	if err := r.SetTrustedProxies(trustedProxies(os.Getenv("TRUSTED_PROXIES"))); err != nil {
 		log.Fatal("Güvenilir proxy ayarı yapılandırılamadı: ", err)
 	}
-	r.Use(corsMiddleware())
+	r.Use(hstsMiddleware(os.Getenv("HSTS_MAX_AGE")), corsMiddleware())
 
 	routes.SetupRoutes(r)
 
@@ -48,6 +49,29 @@ func trustedProxies(value string) []string {
 		}
 	}
 	return proxies
+}
+
+// hstsMiddleware sends Strict-Transport-Security on HTTPS responses when
+// HSTS_MAX_AGE (seconds) is positive. TLS ends at the reverse proxy, which
+// reports the original scheme in X-Forwarded-Proto. Browsers ignore the
+// header over plain HTTP, so a forged X-Forwarded-Proto on HTTP is harmless.
+// No includeSubDomains or preload: raising the commitment stays a deliberate
+// change of HSTS_MAX_AGE.
+func hstsMiddleware(maxAge string) gin.HandlerFunc {
+	seconds, err := strconv.Atoi(strings.TrimSpace(maxAge))
+	if err != nil || seconds <= 0 {
+		if strings.TrimSpace(maxAge) != "" {
+			log.Printf("warning: invalid HSTS_MAX_AGE=%q, HSTS disabled", maxAge)
+		}
+		return func(c *gin.Context) { c.Next() }
+	}
+	value := "max-age=" + strconv.Itoa(seconds)
+	return func(c *gin.Context) {
+		if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+			c.Header("Strict-Transport-Security", value)
+		}
+		c.Next()
+	}
 }
 
 func corsMiddleware() gin.HandlerFunc {
