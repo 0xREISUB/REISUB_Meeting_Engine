@@ -2,7 +2,11 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
+	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
+	"github.com/twitchtv/twirp"
 )
 
 const ownerIdentity = "user-11-90b39d7a-5745-4c23-a697-e1e85fe145e0"
@@ -205,5 +210,131 @@ func TestStaleScreenReservationExpiresButAnActiveTrackKeepsIt(t *testing.T) {
 	}
 	if hasSource(f.participants[1], livekit.TrackSource_SCREEN_SHARE) {
 		t.Fatal("expired publisher still allowed")
+	}
+}
+
+func publishScreen(p *livekit.ParticipantInfo, sources ...livekit.TrackSource) {
+	for _, source := range sources {
+		sid := "screen"
+		if source == livekit.TrackSource_SCREEN_SHARE_AUDIO {
+			sid = "screen-audio"
+		}
+		p.Tracks = append(p.Tracks, &livekit.TrackInfo{Sid: sid, Source: source})
+	}
+}
+
+func stateRequest(r *gin.Engine, token string) *httptest.ResponseRecorder {
+	return jsonRequest(r, http.MethodGet, "/rooms/123-456-789/state", token, "")
+}
+
+func expireShareLease(t *testing.T) {
+	t.Helper()
+	if err := database.DB.Model(&models.Room{}).Where("room_id = ?", "123-456-789").
+		Update("screen_share_lease_until", time.Now().Add(-time.Second).Unix()).Error; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertMuted(t *testing.T, f *fakeModeration, want ...string) {
+	t.Helper()
+	if !slices.Equal(f.mutedTracks, want) {
+		t.Fatalf("muted tracks = %v, want %v", f.mutedTracks, want)
+	}
+}
+
+func TestDisablingGuestSharingMutesScreenAndScreenAudioTracks(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	allowSharing(t, r)
+	if w := shareRequest(r, "start", "guest-token", testParticipantIdentity); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	guest := f.participants[0]
+	publishScreen(guest, livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO)
+	w := moderationRequest(r, "/rooms/123-456-789/settings", "owner-token", `{"allow_participant_screen_share":false}`)
+	if w.Code != 200 || w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	assertMuted(t, f, "screen", "screen-audio")
+	if hasSource(guest, livekit.TrackSource_SCREEN_SHARE) || hasSource(guest, livekit.TrackSource_SCREEN_SHARE_AUDIO) {
+		t.Fatal("screen sources still granted")
+	}
+	for _, track := range guest.Tracks {
+		if track.Source == livekit.TrackSource_MICROPHONE && track.Muted {
+			t.Fatal("revoking screen share muted the microphone")
+		}
+	}
+}
+
+func TestOwnerStoppingGuestShareMutesItsTracks(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	allowSharing(t, r)
+	shareRequest(r, "start", "guest-token", testParticipantIdentity)
+	publishScreen(f.participants[0], livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO)
+	if w := shareRequest(r, "stop", "owner-token", testParticipantIdentity); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	assertMuted(t, f, "screen", "screen-audio")
+}
+
+func TestStartingShareMutesLeftoverScreenTracksOfOthers(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	addScreenOwner(f)
+	// A misbehaving guest publishes screen tracks without holding the slot.
+	publishScreen(f.participants[0], livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO)
+	if w := shareRequest(r, "start", "owner-token", ownerIdentity); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	assertMuted(t, f, "screen", "screen-audio")
+}
+
+func TestStaleReleaseTreatsScreenAudioAsAccompanimentOnly(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	addScreenOwner(f)
+	owner := f.participants[1]
+	shareRequest(r, "start", "owner-token", ownerIdentity)
+	publishScreen(owner, livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO)
+	expireShareLease(t)
+
+	// Video and audio live: the share is active and nothing is touched.
+	if w := stateRequest(r, "guest-token"); w.Code != 200 || !strings.Contains(w.Body.String(), ownerIdentity) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	assertMuted(t, f)
+
+	// The video track ended but screen audio is still live: release the slot
+	// and mute the leftover audio rather than letting it hold the room.
+	owner.Tracks[0].Muted = true
+	if w := stateRequest(r, "guest-token"); w.Code != 200 || w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	assertMuted(t, f, "screen", "screen-audio")
+	if hasSource(owner, livekit.TrackSource_SCREEN_SHARE_AUDIO) {
+		t.Fatal("stale holder kept screen audio permission")
+	}
+}
+
+func TestRevokeToleratesUnpublishedTracksAndReportsMuteFailures(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	allowSharing(t, r)
+	shareRequest(r, "start", "guest-token", testParticipantIdentity)
+	publishScreen(f.participants[0], livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO)
+
+	f.muteErr = errors.New("network unavailable")
+	assertAPIError(t, moderationRequest(r, "/rooms/123-456-789/settings", "owner-token", `{"allow_participant_screen_share":false}`),
+		502, apierror.MediaServerError, "İzin kapatıldı fakat paylaşım durdurulamadı. Tekrar deneyin.")
+	var room models.Room
+	database.DB.First(&room)
+	if room.AllowParticipantScreenShare || room.ScreenShareIdentity == "" {
+		t.Fatal("failed revoke must keep the slot for a retry but persist the restriction")
+	}
+
+	// The track may already be gone once the source permission is revoked.
+	f.muteErr = twirp.NotFoundError("track not found")
+	if w := moderationRequest(r, "/rooms/123-456-789/settings", "owner-token", `{"allow_participant_screen_share":false}`); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	database.DB.First(&room)
+	if room.ScreenShareIdentity != "" {
+		t.Fatal("slot not released")
 	}
 }
