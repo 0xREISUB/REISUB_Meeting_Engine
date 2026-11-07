@@ -8,6 +8,7 @@ import (
 
 	"reisub-backend/apierror"
 	"reisub-backend/database"
+	"reisub-backend/middleware"
 	"reisub-backend/models"
 
 	"github.com/gin-gonic/gin"
@@ -96,11 +97,8 @@ func Login(c *gin.Context) {
 }
 
 func Logout(c *gin.Context) {
-	token := strings.TrimSpace(c.GetHeader("Authorization"))
-	if strings.HasPrefix(strings.ToLower(token), "bearer ") {
-		token = strings.TrimSpace(token[len("Bearer "):])
-	}
-	if token == "" || len(token) < 30 {
+	token := middleware.BearerToken(c)
+	if len(token) < 30 {
 		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidToken, "Token geçersiz")
 		return
 	}

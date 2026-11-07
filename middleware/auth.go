@@ -11,12 +11,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// BearerToken returns the session token from the Authorization header. The
+// "Bearer " prefix is optional and case-insensitive.
+func BearerToken(c *gin.Context) string {
+	token := strings.TrimSpace(c.GetHeader("Authorization"))
+	if strings.HasPrefix(strings.ToLower(token), "bearer ") {
+		token = strings.TrimSpace(token[len("Bearer "):])
+	}
+	return token
+}
+
+// RequireAuth rejects requests without a valid session token (HTTP 401,
+// which clients treat as "session expired") and stores the user under "user".
 func RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := strings.TrimSpace(c.GetHeader("Authorization"))
-		if strings.HasPrefix(strings.ToLower(token), "bearer ") {
-			token = strings.TrimSpace(token[len("Bearer "):])
-		}
+		token := BearerToken(c)
 
 		if token == "" {
 			apierror.Abort(c, http.StatusUnauthorized, apierror.AuthRequired, "Kimlik doğrulaması gerekli")
