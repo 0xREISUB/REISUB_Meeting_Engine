@@ -50,8 +50,19 @@ use `docker compose exec backend wget -qO- http://127.0.0.1:8080/ping`. LiveKit 
 
 LiveKit runs with an explicit production configuration. Its API/WebSocket uses
 port 7880, ICE/TCP uses 7881, and all ICE/UDP traffic uses the published UDP mux
-port 7882. Allow TCP 7881 and UDP 7882 through the host and provider firewalls;
+port 3478. Allow TCP 7881 and UDP 3478 through the host and provider firewalls;
 the WebSocket reverse proxy alone does not carry WebRTC media.
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 443 (NPM) | TCP | API, web app, LiveKit signaling (`wss://rtc.…`) |
+| 7880 | TCP | LiveKit API/WebSocket behind NPM |
+| 7881 | TCP | ICE/TCP media fallback |
+| 3478 | UDP | ICE/UDP media (single mux port) |
+
+UDP 3478 is the standard STUN/TURN port. Restrictive networks such as eduroam
+let it through while blocking 7881/TCP and the former 7882/UDP, which left
+clients joined (signaling over 443) but without media.
 
 By default, `LIVEKIT_USE_EXTERNAL_IP=true` discovers the public media IP through
 STUN. If discovery is unavailable or returns the wrong address, configure the
