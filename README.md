@@ -376,9 +376,28 @@ startup the backend logs a warning if any stored nick still has surrounding
 whitespace (such accounts cannot log in with trimmed input and need a manual
 migration).
 
+## Server policy
+
+`GET /policy` (no authentication, CORS like `/ping`) publishes the server's
+public rules as a flat JSON object:
+
+```json
+{"guests_allowed": true}
+```
+
+New keys may be added later; clients ignore keys they do not know. It contains
+nothing private.
+
+| Setting (`config/stack.env`) | Default | Effect |
+| --- | --- | --- |
+| `GUESTS_ALLOWED` | `true` | `false` makes meetings need an account (see below). A value that is not `true`/`false` also disallows guests, and the backend logs a warning at startup. |
+
+Changing it needs `docker compose --env-file config/stack.env up -d --no-deps backend`;
+LiveKit and running meetings are not affected.
+
 ## Guest sessions
 
-Logging in is optional. `POST /guest` (no Authorization header, no body)
+Logging in is optional unless `GUESTS_ALLOWED=false`. `POST /guest` (no Authorization header, no body)
 creates a new guest user and answers `201 {"token": "<token>", "guest": true}`.
 Send the token as `Authorization: Bearer <token>` on `/rooms` requests, exactly
 like a login token: guests can create and join rooms, chat, share their screen
@@ -398,6 +417,10 @@ and be owner or receive any permission.
   (default `336h`) are deleted hourly with their room roles, bans, waiting requests, microphone locks
   and room display names. Chat messages stay (they store the sender's display
   name); a room left without an owner passes to the next user who joins.
+- With `GUESTS_ALLOWED=false`, `POST /guest` and every request made with a
+  guest token answer `403 guests_not_allowed`, and the client asks the user to
+  log in. Account tokens work as before. Guests already in a meeting are not
+  disconnected; their next API call or rejoin is refused.
 
 Chat shows each sender with the name they gave when creating or joining the
 room, for guests and accounts alike.
@@ -423,6 +446,7 @@ the session token is missing or expired.
 | `missing_credentials` | Nick or password missing, or nick blank after trimming |
 | `password_too_long` | Password longer than 72 bytes |
 | `nick_reserved` | Nicks starting with `guest-` are reserved for guests |
+| `guests_not_allowed` | The server requires an account: no guest sessions (403, see `GET /policy`) |
 | `rate_limited` | Too many requests from this address; retry later (429) |
 | `nick_taken` | Nick already registered |
 | `user_not_found` | No account with this nick |
