@@ -220,6 +220,18 @@ of wire names) and `"is_host"` (true only for the owner).
 - `POST /rooms/:room_id/leave`: the caller is leaving on purpose.
 - `POST /rooms/:room_id/close` (`end_meeting`) closes the room to new joins
   and deletes its LiveKit media session. Closing can be retried safely.
+
+Rooms also close by themselves when nobody has created, joined, been admitted
+to, or been connected to them for `ROOM_IDLE_AFTER` (default `24h`). Connected
+clients poll the room state, which marks the room used at most hourly; a check
+runs at startup and then hourly, and keeps any room that still has someone
+connected in LiveKit. A closed room's code stops working for good.
+
+A room code is the only secret needed to join, and requests under `/rooms`
+answer `404` for a wrong one. After 30 such `404` answers from one client IP
+within 10 minutes, every `/rooms` request from that IP gets
+`429 rate_limited` with `Retry-After` until the window ends; requests for
+rooms that exist never count. Counters live in memory.
 - `POST /rooms/:room_id/participants/:identity/microphone` accepts
   `{"locked":true}` to mute and lock the microphone, `{"locked":false}` to
   unlock, or `{"locked":false,"request_unmute":true}` to ask the participant to
