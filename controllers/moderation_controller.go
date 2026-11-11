@@ -17,7 +17,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/livekit/protocol/livekit"
 	"google.golang.org/protobuf/proto"
-	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -68,12 +67,10 @@ func CloseRoom(c *gin.Context) {
 }
 
 func microphoneLocked(roomID string, userID uint) (bool, error) {
-	var lock models.RoomMicrophoneLock
-	err := database.DB.Where("room_id = ? AND user_id = ?", roomID, userID).First(&lock).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false, nil
-	}
-	return lock.Locked, err
+	// Find instead of First: most users have no lock row, which must not be logged.
+	var locks []models.RoomMicrophoneLock
+	err := database.DB.Where("room_id = ? AND user_id = ?", roomID, userID).Limit(1).Find(&locks).Error
+	return len(locks) > 0 && locks[0].Locked, err
 }
 
 // participantUserID extracts the user ID from a LiveKit identity of the form
