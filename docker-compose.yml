@@ -45,6 +45,10 @@ services:
       # (Go durations; empty uses the defaults 720h and 336h).
       # false makes meetings need an account; published by GET /policy.
       GUESTS_ALLOWED: ${GUESTS_ALLOWED:-true}
+      # Optional meeting time limit and the wait before the creator/owner of a
+      # room that hit it may create another (minutes; 0 = off). See /policy.
+      MEETING_TIME_LIMIT_MINUTES: ${MEETING_TIME_LIMIT_MINUTES:-0}
+      MEETING_COOLDOWN_MINUTES: ${MEETING_COOLDOWN_MINUTES:-0}
       # Rooms nobody joined or was in for this long are closed (Go duration,
       # empty uses 24h).
       ROOM_IDLE_AFTER: ${ROOM_IDLE_AFTER:-}

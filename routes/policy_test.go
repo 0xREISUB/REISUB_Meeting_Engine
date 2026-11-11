@@ -19,13 +19,17 @@ func policyRouter(t *testing.T) *gin.Engine {
 
 func TestPolicyIsPublicAndFollowsGuestsAllowed(t *testing.T) {
 	for _, tc := range []struct {
-		value, body string
+		value, limit, cooldown, body string
 	}{
-		{"", `{"guests_allowed":true}`}, // the default
-		{"true", `{"guests_allowed":true}`},
-		{"false", `{"guests_allowed":false}`},
+		// The defaults: guests allowed, no time limit, no wait.
+		{"", "", "", `{"guests_allowed":true,"meeting_cooldown_minutes":0,"meeting_time_limit_minutes":0}`},
+		{"true", "45", "15", `{"guests_allowed":true,"meeting_cooldown_minutes":15,"meeting_time_limit_minutes":45}`},
+		{"false", "0", "0", `{"guests_allowed":false,"meeting_cooldown_minutes":0,"meeting_time_limit_minutes":0}`},
+		{"", "soon", "-5", `{"guests_allowed":true,"meeting_cooldown_minutes":0,"meeting_time_limit_minutes":0}`},
 	} {
 		t.Setenv("GUESTS_ALLOWED", tc.value)
+		t.Setenv("MEETING_TIME_LIMIT_MINUTES", tc.limit)
+		t.Setenv("MEETING_COOLDOWN_MINUTES", tc.cooldown)
 		w := httptest.NewRecorder()
 		// No Authorization header: the policy is public.
 		policyRouter(t).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/policy", nil))
