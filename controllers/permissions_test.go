@@ -26,7 +26,7 @@ const (
 )
 
 // formerModerator are the permissions migrated moderators get.
-const formerModerator = "share_screen,mute_others,request_unmute,end_meeting"
+const formerModerator = "share_screen,mute_others,request_unmute,admit_members,end_meeting"
 
 func identityFor(userID uint) string {
 	return fmt.Sprintf("user-%d-90b39d7a-5745-4c23-a697-e1e85fe145e0", userID)

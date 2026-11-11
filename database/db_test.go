@@ -132,8 +132,8 @@ func TestMigrateConvertsRolesToPermissionsOnce(t *testing.T) {
 	if err = Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	const moderator = "share_screen,mute_others,request_unmute,end_meeting"
-	const all = "share_screen,mute_others,request_unmute,remove_members,end_meeting,grant_permissions"
+	const moderator = "share_screen,mute_others,request_unmute,admit_members,end_meeting"
+	const all = "share_screen,mute_others,request_unmute,admit_members,remove_members,end_meeting,grant_permissions"
 	want := map[uint]models.RoomRole{
 		1: {Role: "owner"},
 		2: {Role: "participant", Permissions: all},
