@@ -49,18 +49,44 @@ func CloseRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusServiceUnavailable, apierror.MediaServerNotConfigured, "Toplantı sunucusu yapılandırılmamış")
 		return
 	}
-	// Deny new join tokens before terminating active media sessions.
-	if err = database.DB.Model(&room).Update("status", models.RoomStatusClosing).Error; err != nil {
+	switch step, err := closeRoom(ctx, service, &room); {
+	case err == nil:
+		c.JSON(http.StatusOK, gin.H{"status": models.RoomStatusClosed})
+	case step == closeMarking:
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapatma işlemi başlatılamadı")
-		return
-	}
-	if _, err = service.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: room.RoomID}); err != nil && !isTwirpNotFound(err) {
+	case step == closeMedia:
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Oda katılıma kapatıldı fakat mevcut bağlantılar sonlandırılamadı. Tekrar deneyin.")
-		return
+	case step == closeGrants:
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapandı fakat izinler silinemedi. Tekrar deneyin.")
+	default:
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapandı fakat durum kaydedilemedi. Tekrar deneyin.")
+	}
+}
+
+// Steps of closeRoom, to tell which one failed.
+type closeStep int
+
+const (
+	closeMarking closeStep = iota
+	closeMedia
+	closeGrants
+	closeStatus
+)
+
+// closeRoom ends a room for good: it stops new joins, deletes the LiveKit
+// media session, drops participants' permissions, bans and waiting requests,
+// and marks the room closed. It can be retried after a failure. Callers hold
+// the room lifecycle lock.
+func closeRoom(ctx context.Context, service liveKitRoomService, room *models.Room) (closeStep, error) {
+	// Deny new join tokens before terminating active media sessions.
+	if err := database.DB.Model(room).Update("status", models.RoomStatusClosing).Error; err != nil {
+		return closeMarking, err
+	}
+	if _, err := service.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: room.RoomID}); err != nil && !isTwirpNotFound(err) {
+		return closeMedia, err
 	}
 	forgetShareCheck(room.RoomID)
-	// Participants' permissions, bans and waiting requests end with the room.
-	err = database.DB.Transaction(func(tx *gorm.DB) error {
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("room_id = ? AND role = ?", room.RoomID, models.RoleParticipant).Delete(&models.RoomRole{}).Error; err != nil {
 			return err
 		}
@@ -70,14 +96,12 @@ func CloseRoom(c *gin.Context) {
 		return tx.Where("room_id = ?", room.RoomID).Delete(&models.RoomBan{}).Error
 	})
 	if err != nil {
-		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapandı fakat izinler silinemedi. Tekrar deneyin.")
-		return
+		return closeGrants, err
 	}
-	if err = database.DB.Model(&room).Update("status", models.RoomStatusClosed).Error; err != nil {
-		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapandı fakat durum kaydedilemedi. Tekrar deneyin.")
-		return
+	if err := database.DB.Model(room).Update("status", models.RoomStatusClosed).Error; err != nil {
+		return closeStatus, err
 	}
-	c.JSON(http.StatusOK, gin.H{"status": models.RoomStatusClosed})
+	return closeStatus, nil
 }
 
 func microphoneLocked(roomID string, userID uint) (bool, error) {
