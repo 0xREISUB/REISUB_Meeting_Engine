@@ -25,6 +25,11 @@ type Room struct {
 	// (refreshed at most hourly while connected). Rooms unused for
 	// ROOM_IDLE_AFTER are closed; nil (older rooms) falls back to CreatedAt.
 	LastUsedAt *time.Time
+	// EndsAt is when the room ends by itself: its creation time plus the
+	// meeting time limit in force then; nil for rooms without a limit.
+	EndsAt *time.Time
+	// EndedAtLimit records that the room was closed because EndsAt passed.
+	EndedAtLimit bool `gorm:"not null;default:false"`
 	// WaitingRoom makes newcomers wait until someone with admit_members
 	// lets them in.
 	WaitingRoom bool `gorm:"not null;default:false"`
