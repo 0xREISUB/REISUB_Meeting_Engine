@@ -35,12 +35,14 @@ func SetupRoutes(r *gin.Engine) {
 
 	// Health check used by clients to verify the server address.
 	r.GET("/ping", controllers.Ping)
+	// The server's public rules, e.g. whether guests may use meetings.
+	r.GET("/policy", controllers.Policy)
 
 	r.POST("/register", controllers.Register)
 	r.POST("/login", controllers.Login)
 	r.POST("/logout", controllers.Logout)
 	// Anonymous guest session; no auth.
-	r.POST("/guest", middleware.RateLimit(guestsPerWindow, guestWindow), controllers.CreateGuest)
+	r.POST("/guest", middleware.RequireGuestsAllowed(), middleware.RateLimit(guestsPerWindow, guestWindow), controllers.CreateGuest)
 
 	// Called by LiveKit; authenticated by its signed JWT, not a user token.
 	r.POST("/livekit/webhook", controllers.LiveKitWebhook)

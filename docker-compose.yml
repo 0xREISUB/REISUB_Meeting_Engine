@@ -43,6 +43,8 @@ services:
       HSTS_MAX_AGE: ${HSTS_MAX_AGE:-300}
       # Guest sessions: token lifetime, and how long an unused guest is kept
       # (Go durations; empty uses the defaults 720h and 336h).
+      # false makes meetings need an account; published by GET /policy.
+      GUESTS_ALLOWED: ${GUESTS_ALLOWED:-true}
       GUEST_TOKEN_TTL: ${GUEST_TOKEN_TTL:-}
       GUEST_INACTIVE_AFTER: ${GUEST_INACTIVE_AFTER:-}
     # No published port: the backend is reachable only through Nginx Proxy

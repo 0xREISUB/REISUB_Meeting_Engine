@@ -218,3 +218,55 @@ func TestRoomOfDeletedGuestOwnerPassesToNextJoiner(t *testing.T) {
 		t.Fatal("room without its deleted owner did not pass to the next joiner:", joined.Code, joined.Body.String())
 	}
 }
+
+func TestGuestTokensRefusedWhileGuestsAreNotAllowed(t *testing.T) {
+	r, f := moderationTestRouter(t)
+	guestToken, _ := newGuest(t, r) // created while guests were allowed
+	// The guest is in a meeting when the server stops allowing guests.
+	joined := jsonRequest(r, http.MethodPost, "/rooms/join", guestToken, `{"room_id":"123-456-789","name":"Mehmet"}`)
+	if joined.Code != 200 {
+		t.Fatal(joined.Code, joined.Body.String())
+	}
+	guestSession := connectWith(t, f, joined.Body.Bytes())
+	t.Setenv("GUESTS_ALLOWED", "false")
+
+	const message = "Bu sunucu hesap gerektiriyor; lütfen giriş yapın"
+	for _, req := range []struct{ method, path, body string }{
+		{http.MethodPost, "/rooms", `{"name":"x"}`},
+		{http.MethodPost, "/rooms/join", `{"room_id":"123-456-789","name":"x"}`},
+		{http.MethodGet, "/rooms/123-456-789/state", ""},
+		{http.MethodGet, "/rooms/123-456-789/messages", ""},
+		{http.MethodPost, "/rooms/123-456-789/messages", `{"content":"hi"}`},
+		{http.MethodPost, "/rooms/123-456-789/leave", ""},
+		{http.MethodPut, "/rooms/123-456-789/settings", `{"waiting_room":true}`},
+		{http.MethodGet, "/rooms/123-456-789/waiting/any", ""},
+	} {
+		assertAPIError(t, jsonRequest(r, req.method, req.path, guestToken, req.body), 403, apierror.GuestsNotAllowed, message)
+	}
+	// Account tokens are unaffected.
+	if w := jsonRequest(r, http.MethodPost, "/rooms/join", "owner-token", `{"room_id":"123-456-789","name":"Ayşe"}`); w.Code != 200 {
+		t.Fatal("account refused:", w.Code, w.Body.String())
+	}
+	if w := jsonRequest(r, http.MethodGet, "/rooms/123-456-789/state", "guest-token", ""); w.Code != 200 {
+		t.Fatal("non-guest account refused:", w.Code, w.Body.String())
+	}
+	// The guest already in the meeting is not kicked.
+	if len(f.removed) != 0 || len(sessionsOf(f.participants, mustUserID(t, guestSession.Identity))) != 1 {
+		t.Fatal("changing the setting disconnected a guest")
+	}
+
+	// Allowed again (the default): the same guest token works.
+	t.Setenv("GUESTS_ALLOWED", "")
+	if w := jsonRequest(r, http.MethodGet, "/rooms/123-456-789/state", guestToken, ""); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+}
+
+func mustUserID(t *testing.T, identity string) uint {
+	t.Helper()
+	id, err := participantUserID(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}

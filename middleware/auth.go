@@ -9,6 +9,7 @@ import (
 	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
+	"reisub-backend/policy"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,9 +47,33 @@ func RequireAuth() gin.HandlerFunc {
 			apierror.Abort(c, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
 			return
 		}
+		// Guests already in a meeting stay connected to it; only their API
+		// calls are refused, and the client then asks them to log in.
+		if user.IsGuest {
+			if allowed, _ := policy.GuestsAllowed(); !allowed {
+				respondGuestsNotAllowed(c)
+				return
+			}
+		}
 		touchLastSeen(user, now)
 
 		c.Set("user", user)
+		c.Next()
+	}
+}
+
+func respondGuestsNotAllowed(c *gin.Context) {
+	apierror.Abort(c, http.StatusForbidden, apierror.GuestsNotAllowed, "Bu sunucu hesap gerektiriyor; lütfen giriş yapın")
+}
+
+// RequireGuestsAllowed refuses the request with 403 guests_not_allowed while
+// the server does not allow guests.
+func RequireGuestsAllowed() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if allowed, _ := policy.GuestsAllowed(); !allowed {
+			respondGuestsNotAllowed(c)
+			return
+		}
 		c.Next()
 	}
 }
