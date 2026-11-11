@@ -19,6 +19,7 @@ import (
 func main() {
 	database.ConnectDB()
 	controllers.StartGuestCleanup()
+	controllers.StartRoomCleanup()
 	if _, err := policy.GuestsAllowed(); err != nil {
 		log.Printf("warning: %v", err)
 	}

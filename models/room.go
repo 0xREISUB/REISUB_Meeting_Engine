@@ -21,6 +21,10 @@ type Room struct {
 	Status    string `gorm:"not null;default:active"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	// LastUsedAt is when someone last created, joined or was in the room
+	// (refreshed at most hourly while connected). Rooms unused for
+	// ROOM_IDLE_AFTER are closed; nil (older rooms) falls back to CreatedAt.
+	LastUsedAt *time.Time
 	// WaitingRoom makes newcomers wait until someone with admit_members
 	// lets them in.
 	WaitingRoom bool `gorm:"not null;default:false"`

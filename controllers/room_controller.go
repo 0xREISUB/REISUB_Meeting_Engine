@@ -63,11 +63,13 @@ func CreateRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
 		return
 	}
+	now := time.Now()
 	room := models.Room{
-		RoomID:  roomID,
-		Name:    strings.TrimSpace(input.Name),
-		OwnerID: user.ID,
-		Status:  models.RoomStatusCreating,
+		RoomID:     roomID,
+		Name:       strings.TrimSpace(input.Name),
+		OwnerID:    user.ID,
+		Status:     models.RoomStatusCreating,
+		LastUsedAt: &now,
 	}
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&room).Error; err != nil {
@@ -164,6 +166,7 @@ func enterRoom(c *gin.Context, room *models.Room, userID uint, name string) (roo
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Toplantı sunucusunda oda hazırlanamadı")
 		return roomResponse{}, false
 	}
+	markRoomUsed(room, true)
 	if err = claimOwnershipOnJoin(ctx, service, room, userID); err != nil {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Oda sahipliği güncellenemedi. Tekrar deneyin.")
 		return roomResponse{}, false
