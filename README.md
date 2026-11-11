@@ -188,11 +188,12 @@ when the room is closed.
 | `share_screen` | `POST /screen-share/start` (one sharer at a time) |
 | `mute_others` | lock and unlock microphones, stop someone else's screen share |
 | `request_unmute` | ask someone to turn their microphone on |
+| `admit_members` | turn the waiting room on or off, let people in or turn them away, see who is waiting |
 | `remove_members` | `POST .../remove`: remove someone from the meeting for good |
 | `end_meeting` | `POST /close` |
 | `grant_permissions` | `PUT .../permissions`: give or take any permission, this one included |
 
-Wire names always appear in this order. The owner implicitly has all six;
+Wire names always appear in this order. The owner implicitly has all seven;
 a participant has none until granted. Nobody may act on the owner (including an
 owner who is away, see succession) or on themselves: such requests fail with
 `403 target_protected`. A missing permission fails with
@@ -201,7 +202,7 @@ owner who is away, see succession) or on themselves: such requests fail with
 
 Each participant's role and permissions are published as the LiveKit
 participant attributes `meeting.role` (`"owner"` or `"participant"`) and
-`meeting.permissions` (comma-separated wire names, empty for none, all six for
+`meeting.permissions` (comma-separated wire names, empty for none, all seven for
 the owner) in the join token and on every change, so clients update live.
 `POST /rooms` and `POST /rooms/join` return `"role"`, `"permissions"` (a list
 of wire names) and `"is_host"` (true only for the owner).
@@ -214,7 +215,7 @@ of wire names) and `"is_host"` (true only for the owner).
   current sharer stops their share.
 - `POST /rooms/:room_id/transfer-ownership` `{"identity":"..."}` (owner only,
   else `403 owner_required`): the connected target becomes owner, the caller a
-  participant with all six permissions. Returns
+  participant with all seven permissions. Returns
   `{"identity": "...", "role": "owner", "caller_role": "participant"}`.
 - `POST /rooms/:room_id/leave`: the caller is leaving on purpose.
 - `POST /rooms/:room_id/close` (`end_meeting`) closes the room to new joins
@@ -242,9 +243,36 @@ user ID, never per IP address, and last until the room is closed.
 
 The former `moderator` role is gone. At the first startup after the upgrade,
 moderators became participants with `share_screen`, `mute_others`,
-`request_unmute` and `end_meeting` (not `remove_members`); in rooms that had
+`request_unmute`, `admit_members` and `end_meeting` (not `remove_members`); in
+rooms that had
 several owners, the one connected and appointed earliest stayed owner and the
 others became participants with every permission.
+
+### Waiting room
+
+Off by default. While it is on, `POST /rooms/join` lets in directly only the
+owner (even while away), holders of `admit_members`, and users admitted to the
+room before (anyone who created or joined it, or was admitted, so reconnects
+and rejoins never wait). Everyone else gets
+`202 {"status":"waiting","request_id":"..."}`, under the name sent with the
+join; joining again while waiting returns the same `request_id`. Removed users
+still get `403 removed_from_room` first. Until let in, the chat answers
+`403 not_admitted`.
+
+- `PUT /rooms/:room_id/settings` `{"waiting_room": true|false}`
+  (`admit_members`). Turning it off admits everyone who is waiting.
+- `GET /rooms/:room_id/waiting/:request_id` (the requester only; anyone else
+  gets `404`): `{"status":"waiting"}`, `{"status":"rejected"}`, or
+  `{"status":"admitted", ...}` with the fields of a join response and a token
+  minted at that moment. The client polls every 2 s.
+- `DELETE /rooms/:room_id/waiting/:request_id`: the requester gives up.
+- `POST /rooms/:room_id/waiting/:request_id/admit` and `.../reject` `{}`
+  (`admit_members`). Admitting remembers the user as admitted to the room.
+  Rejecting is not a ban: they may ask again and get a new request.
+
+A request whose requester has not polled for 30 s expires; all requests end
+with the room, and removing a member drops theirs. A request that is gone
+answers `404 waiting_request_not_found`.
 
 ### Owner succession
 
@@ -259,7 +287,7 @@ reports `participant_left`/`room_finished` through the webhook):
 An owner who was away is suspended, not demoted. When they rejoin they are
 owner again and the acting owner gets back the permissions they had before. An
 acting owner who leaves also steps back. A transfer of ownership is final: it
-ends the away owner's right to reclaim, and they keep all six permissions as a
+ends the away owner's right to reclaim, and they keep all seven permissions as a
 participant. Succession is idempotent, so `/leave` and the webhook may both
 arrive.
 
@@ -290,14 +318,18 @@ share at a time.
 
 Authenticated API:
 
-- `GET /rooms/:room_id/state`: `screen_share_identity`.
+- `GET /rooms/:room_id/state`: see below.
 - `POST /rooms/:room_id/screen-share/start`: `{"identity":"user-ID-UUID"}`;
   needs `share_screen`, and only a connected session of the requesting user is
   granted. Returns `409` if another session holds the slot.
 - `POST /rooms/:room_id/screen-share/stop`: stops the share for that identity
   (the holder, or anyone with `mute_others` unless the holder is the owner).
 
-All three return `{"screen_share_identity": string}`.
+All three return the state body,
+`{"screen_share_identity": string, "waiting_room": bool, "waiting": [{"request_id": "...", "name": "..."}]}`,
+as do the waiting-room endpoints that change it. `waiting` lists open requests
+oldest first, and only for the owner and holders of `admit_members`; everyone
+else gets `[]`.
 
 Join JWTs only allow the camera and, unless locked, the microphone, even for
 users with `share_screen`: screen and screen-audio sources are granted only to
@@ -363,7 +395,7 @@ and be owner or receive any permission.
   used; `/guest` never answers `404` or `405`, which clients read as "this
   server requires an account".
 - Guests whose token expired or who were inactive for `GUEST_INACTIVE_AFTER`
-  (default `336h`) are deleted hourly with their room roles, bans, microphone locks
+  (default `336h`) are deleted hourly with their room roles, bans, waiting requests, microphone locks
   and room display names. Chat messages stay (they store the sender's display
   name); a room left without an owner passes to the next user who joins.
 
@@ -402,6 +434,8 @@ the session token is missing or expired.
 | `room_not_found` | Room does not exist or is not active |
 | `room_not_active` | Room is closing or closed |
 | `removed_from_room` | The user was removed from this room and cannot join it again (403) |
+| `waiting_request_not_found` | Waiting request unknown, someone else's, expired, cancelled, or the room ended (404) |
+| `not_admitted` | The waiting room is on and the caller has not been let in yet (403) |
 | `permission_required` | The caller lacks the room permission this needs (403); clients treat the former `not_room_owner` the same |
 | `owner_required` | Only the owner may do this |
 | `target_protected` | Target is the owner or the caller |
