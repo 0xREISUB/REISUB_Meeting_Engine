@@ -76,13 +76,15 @@ func Migrate(db *gorm.DB) error {
 }
 
 // legacyModerator is the removed "moderator" role. Moderators could do what
-// these permissions allow, but neither change roles nor remove members.
+// these permissions allow (admit_members because they could already manage
+// who joins), but neither change roles nor remove members.
 const legacyModerator = "moderator"
 
 var moderatorPermissions = []string{
 	models.PermissionShareScreen,
 	models.PermissionMuteOthers,
 	models.PermissionRequestUnmute,
+	models.PermissionAdmitMembers,
 	models.PermissionEndMeeting,
 }
 
