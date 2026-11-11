@@ -10,6 +10,7 @@ import (
 	"reisub-backend/apierror"
 	"reisub-backend/controllers"
 	"reisub-backend/database"
+	"reisub-backend/policy"
 	"reisub-backend/routes"
 
 	"github.com/gin-gonic/gin"
@@ -18,6 +19,9 @@ import (
 func main() {
 	database.ConnectDB()
 	controllers.StartGuestCleanup()
+	if _, err := policy.GuestsAllowed(); err != nil {
+		log.Printf("warning: %v", err)
+	}
 
 	r := gin.New()
 	r.Use(gin.Logger(), apierror.Recovery())

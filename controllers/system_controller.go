@@ -3,6 +3,8 @@ package controllers
 import (
 	"net/http"
 
+	"reisub-backend/policy"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -12,4 +14,10 @@ func Ping(c *gin.Context) {
 		"message": "pong",
 		"status":  "active",
 	})
+}
+
+// Policy publishes the server's public rules (see package policy). It needs
+// no authentication.
+func Policy(c *gin.Context) {
+	c.JSON(http.StatusOK, policy.Public())
 }

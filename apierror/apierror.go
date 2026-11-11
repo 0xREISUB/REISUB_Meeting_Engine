@@ -42,6 +42,9 @@ const (
 	UserNotFound Code = "user_not_found"
 	// WrongPassword: the password does not match.
 	WrongPassword Code = "wrong_password"
+	// GuestsNotAllowed: the server requires an account; guest sessions
+	// cannot be created or used (HTTP 403). See GET /policy.
+	GuestsNotAllowed Code = "guests_not_allowed"
 	// AuthRequired: no bearer token was sent (HTTP 401).
 	AuthRequired Code = "auth_required"
 	// InvalidToken: the token is unknown or expired (HTTP 401 on /rooms).

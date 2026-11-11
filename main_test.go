@@ -62,3 +62,20 @@ func TestHSTSOnlyOnHTTPSAndOnlyWhenConfigured(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicyIsAllowedThroughCORSLikePing(t *testing.T) {
+	t.Setenv("CORS_ALLOWED_ORIGINS", "https://meeting.example")
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(corsMiddleware())
+	r.GET("/policy", func(c *gin.Context) { c.Status(http.StatusOK) })
+	for _, method := range []string{http.MethodGet, http.MethodOptions} {
+		req := httptest.NewRequest(method, "/policy", nil)
+		req.Header.Set("Origin", "https://meeting.example")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Header().Get("Access-Control-Allow-Origin") != "https://meeting.example" {
+			t.Fatalf("%s /policy: no CORS header", method)
+		}
+	}
+}
