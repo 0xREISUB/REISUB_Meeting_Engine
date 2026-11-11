@@ -65,6 +65,9 @@ const (
 	OwnerRequired Code = "owner_required"
 	// TargetProtected: the target is the room owner or the caller.
 	TargetProtected Code = "target_protected"
+	// RemovedFromRoom: the user was removed from this room and may not join
+	// or use it again until it is closed (HTTP 403).
+	RemovedFromRoom Code = "removed_from_room"
 	// InvalidWebhook: a LiveKit webhook without a valid signature (HTTP 401).
 	InvalidWebhook Code = "invalid_webhook"
 	// InvalidIdentity: the participant identity is malformed.

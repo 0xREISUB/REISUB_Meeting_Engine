@@ -120,7 +120,7 @@ func TestReturningOwnerReclaimsAndActingOwnerGetsPermissionsBack(t *testing.T) {
 	leaveRequest(r, 11)
 	disconnect(f, 11)
 
-	if joined := joinAs(t, r, 11); joined.Role != models.RoleOwner || !joined.IsHost || len(joined.Permissions) != 5 {
+	if joined := joinAs(t, r, 11); joined.Role != models.RoleOwner || !joined.IsHost || len(joined.Permissions) != 6 {
 		t.Fatalf("returning owner got %+v", joined)
 	}
 	if row := mustRow(t, modID); row.Role != models.RoleParticipant || row.Acting || row.Permissions != formerModerator {

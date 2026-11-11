@@ -23,6 +23,7 @@ type liveKitRoomService interface {
 	GetParticipant(context.Context, *livekit.RoomParticipantIdentity) (*livekit.ParticipantInfo, error)
 	UpdateParticipant(context.Context, *livekit.UpdateParticipantRequest) (*livekit.ParticipantInfo, error)
 	MutePublishedTrack(context.Context, *livekit.MuteRoomTrackRequest) (*livekit.MuteRoomTrackResponse, error)
+	RemoveParticipant(context.Context, *livekit.RoomParticipantIdentity) (*livekit.RemoveParticipantResponse, error)
 }
 
 var newLiveKitRoomService = func(endpoint string) liveKitRoomService {

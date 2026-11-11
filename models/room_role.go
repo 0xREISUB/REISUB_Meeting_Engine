@@ -19,6 +19,7 @@ const (
 	PermissionShareScreen      = "share_screen"
 	PermissionMuteOthers       = "mute_others"
 	PermissionRequestUnmute    = "request_unmute"
+	PermissionRemoveMembers    = "remove_members"
 	PermissionEndMeeting       = "end_meeting"
 	PermissionGrantPermissions = "grant_permissions"
 )
@@ -28,6 +29,7 @@ var AllPermissions = []string{
 	PermissionShareScreen,
 	PermissionMuteOthers,
 	PermissionRequestUnmute,
+	PermissionRemoveMembers,
 	PermissionEndMeeting,
 	PermissionGrantPermissions,
 }

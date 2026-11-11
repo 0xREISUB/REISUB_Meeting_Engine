@@ -122,6 +122,10 @@ func JoinRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
 		return
 	}
+	// Removed users get no token, and so cannot become acting owner either.
+	if !rejectBanned(c, room.RoomID) {
+		return
+	}
 
 	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {

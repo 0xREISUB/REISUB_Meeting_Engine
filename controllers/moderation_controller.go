@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/livekit/protocol/livekit"
 	"google.golang.org/protobuf/proto"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -58,8 +59,14 @@ func CloseRoom(c *gin.Context) {
 		return
 	}
 	forgetShareCheck(room.RoomID)
-	// Participants' permissions end with the room.
-	if err = database.DB.Where("room_id = ? AND role = ?", room.RoomID, models.RoleParticipant).Delete(&models.RoomRole{}).Error; err != nil {
+	// Participants' permissions and bans end with the room.
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("room_id = ? AND role = ?", room.RoomID, models.RoleParticipant).Delete(&models.RoomRole{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("room_id = ?", room.RoomID).Delete(&models.RoomBan{}).Error
+	})
+	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapandı fakat izinler silinemedi. Tekrar deneyin.")
 		return
 	}
