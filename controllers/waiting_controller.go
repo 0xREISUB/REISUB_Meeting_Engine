@@ -115,7 +115,11 @@ func meetingState(c *gin.Context, room models.Room) (gin.H, error) {
 			return nil, err
 		}
 	}
-	return gin.H{"screen_share_identity": room.ScreenShareIdentity, "waiting_room": room.WaitingRoom, "waiting": waiting}, nil
+	state := gin.H{"screen_share_identity": room.ScreenShareIdentity, "waiting_room": room.WaitingRoom, "waiting": waiting}
+	if secondsLeft, endsAt := timeLeft(room); secondsLeft != nil {
+		state["seconds_left"], state["ends_at"] = *secondsLeft, *endsAt
+	}
+	return state, nil
 }
 
 // respondState writes the caller's /state body with status 200.

@@ -20,8 +20,11 @@ func main() {
 	database.ConnectDB()
 	controllers.StartGuestCleanup()
 	controllers.StartRoomCleanup()
-	if _, err := policy.GuestsAllowed(); err != nil {
-		log.Printf("warning: %v", err)
+	if err := controllers.ScheduleRoomEnds(); err != nil {
+		log.Fatal("Toplantı süre sınırları zamanlanamadı: ", err)
+	}
+	for _, problem := range policy.Problems() {
+		log.Printf("warning: %v", problem)
 	}
 
 	r := gin.New()

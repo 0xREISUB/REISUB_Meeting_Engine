@@ -68,6 +68,10 @@ const (
 	OwnerRequired Code = "owner_required"
 	// TargetProtected: the target is the room owner or the caller.
 	TargetProtected Code = "target_protected"
+	// MeetingCooldown: the caller's last meeting ended at its time limit and
+	// they must wait before creating another (HTTP 429). The body adds
+	// "retry_after_seconds".
+	MeetingCooldown Code = "meeting_cooldown"
 	// RemovedFromRoom: the user was removed from this room and may not join
 	// or use it again until it is closed (HTTP 403).
 	RemovedFromRoom Code = "removed_from_room"
@@ -114,6 +118,16 @@ type Body struct {
 // Respond writes an error response.
 func Respond(c *gin.Context, status int, code Code, message string) {
 	c.JSON(status, Body{Error: message, Code: code})
+}
+
+// RespondWith writes an error response with extra fields next to "error"
+// and "code", such as "retry_after_seconds".
+func RespondWith(c *gin.Context, status int, code Code, message string, extra map[string]any) {
+	body := map[string]any{"error": message, "code": code}
+	for key, value := range extra {
+		body[key] = value
+	}
+	c.JSON(status, body)
 }
 
 // Abort writes an error response and stops the handler chain.

@@ -14,6 +14,7 @@ import (
 	"reisub-backend/apierror"
 	"reisub-backend/database"
 	"reisub-backend/models"
+	"reisub-backend/policy"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -41,6 +42,11 @@ type roomResponse struct {
 	// Permissions at join time, in wire order; all of them for the owner.
 	// Later changes arrive as the meeting.permissions LiveKit attribute.
 	Permissions []string `json:"permissions"`
+	// SecondsLeft and EndsAt (RFC 3339 UTC) describe the room's time limit;
+	// both are omitted for rooms without one. Clients count down from
+	// SecondsLeft so device clocks do not matter.
+	SecondsLeft *int64  `json:"seconds_left,omitempty"`
+	EndsAt      *string `json:"ends_at,omitempty"`
 	// InviteURL is PUBLIC_WEB_URL + "/j/" + room ID; omitted when
 	// PUBLIC_WEB_URL is not configured.
 	InviteURL string `json:"invite_url,omitempty"`
@@ -54,6 +60,9 @@ func CreateRoom(c *gin.Context) {
 	}
 
 	user := c.MustGet("user").(models.User)
+	if !rejectCooldown(c, user.ID) {
+		return
+	}
 	if os.Getenv("LIVEKIT_API_KEY") == "" || os.Getenv("LIVEKIT_API_SECRET") == "" {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.MediaServerNotConfigured, "LiveKit yapılandırması eksik")
 		return
@@ -70,6 +79,10 @@ func CreateRoom(c *gin.Context) {
 		OwnerID:    user.ID,
 		Status:     models.RoomStatusCreating,
 		LastUsedAt: &now,
+	}
+	if limit := policy.MeetingTimeLimit(); limit > 0 {
+		endsAt := now.Add(limit)
+		room.EndsAt = &endsAt
 	}
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&room).Error; err != nil {
@@ -98,6 +111,9 @@ func CreateRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda etkinleştirilemedi")
 		return
 	}
+	if room.EndsAt != nil {
+		scheduleRoomEnd(room.RoomID, *room.EndsAt)
+	}
 	if err = rememberDisplayName(room.RoomID, user.ID, input.Name); err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
 		return
@@ -120,7 +136,8 @@ func JoinRoom(c *gin.Context) {
 	releaseRoom := lockRoomLifecycle(input.RoomID)
 	defer releaseRoom()
 	var room models.Room
-	if err := database.DB.Where("room_id = ? AND status = ?", input.RoomID, models.RoomStatusActive).First(&room).Error; err != nil {
+	// A room past its limit is about to be closed by its timer.
+	if err := database.DB.Where("room_id = ? AND status = ?", input.RoomID, models.RoomStatusActive).First(&room).Error; err != nil || pastLimit(room) {
 		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
 		return
 	}
@@ -254,7 +271,10 @@ func makeRoomResponse(room models.Room, userID uint, participant string, a acces
 		return roomResponse{}, err
 	}
 
+	secondsLeft, endsAt := timeLeft(room)
 	return roomResponse{
+		SecondsLeft: secondsLeft,
+		EndsAt:      endsAt,
 		RoomID:      room.RoomID,
 		LiveKitURL:  liveKitURL(),
 		Token:       token,
