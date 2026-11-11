@@ -31,6 +31,9 @@ func ListRoomMessages(c *gin.Context) {
 		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
 		return
 	}
+	if !rejectBanned(c, roomID) {
+		return
+	}
 
 	var messages []models.ChatMessage
 	if err := database.DB.Where("room_id = ?", roomID).Order("id DESC").Limit(200).Find(&messages).Error; err != nil {
@@ -60,6 +63,9 @@ func SendRoomMessage(c *gin.Context) {
 	roomID := c.Param("room_id")
 	if !activeRoomExists(roomID) {
 		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
+		return
+	}
+	if !rejectBanned(c, roomID) {
 		return
 	}
 

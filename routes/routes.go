@@ -56,6 +56,7 @@ func SetupRoutes(r *gin.Engine) {
 		roomRoutes.POST("/:room_id/screen-share/stop", controllers.StopScreenShare)
 		roomRoutes.POST("/:room_id/participants/:identity/microphone", controllers.SetParticipantMicrophone)
 		roomRoutes.PUT("/:room_id/participants/:identity/permissions", controllers.SetParticipantPermissions)
+		roomRoutes.POST("/:room_id/participants/:identity/remove", controllers.RemoveMember)
 		roomRoutes.POST("/:room_id/transfer-ownership", controllers.TransferOwnership)
 		roomRoutes.POST("/:room_id/leave", controllers.LeaveRoom)
 		roomRoutes.GET("/:room_id/messages", controllers.ListRoomMessages)

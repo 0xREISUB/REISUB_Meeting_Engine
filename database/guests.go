@@ -45,7 +45,7 @@ func DeleteInactiveGuests(db *gorm.DB, cutoff time.Time) (int64, error) {
 	for start := 0; start < len(ids); start += 500 {
 		batch := ids[start:min(start+500, len(ids))]
 		err := db.Transaction(func(tx *gorm.DB) error {
-			for _, table := range []any{&models.RoomRole{}, &models.RoomMicrophoneLock{}, &models.RoomMember{}} {
+			for _, table := range []any{&models.RoomRole{}, &models.RoomMicrophoneLock{}, &models.RoomMember{}, &models.RoomBan{}} {
 				if err := tx.Where("user_id IN ?", batch).Delete(table).Error; err != nil {
 					return err
 				}

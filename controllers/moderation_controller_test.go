@@ -35,6 +35,8 @@ type fakeModeration struct {
 	creates      int
 	deletes      int
 	deleteError  error
+	removed      []string
+	removeErr    error
 	onDelete     func()
 	onCreate     func()
 }
@@ -87,6 +89,20 @@ func (f *fakeModeration) UpdateParticipant(_ context.Context, r *livekit.UpdateP
 		}
 	}
 	return nil, errors.New("participant not found")
+}
+func (f *fakeModeration) RemoveParticipant(_ context.Context, r *livekit.RoomParticipantIdentity) (*livekit.RemoveParticipantResponse, error) {
+	if f.removeErr != nil {
+		return nil, f.removeErr
+	}
+	f.removed = append(f.removed, r.Identity)
+	var kept []*livekit.ParticipantInfo
+	for _, p := range f.participants {
+		if p.Identity != r.Identity {
+			kept = append(kept, p)
+		}
+	}
+	f.participants = kept
+	return &livekit.RemoveParticipantResponse{}, nil
 }
 func (f *fakeModeration) MutePublishedTrack(_ context.Context, r *livekit.MuteRoomTrackRequest) (*livekit.MuteRoomTrackResponse, error) {
 	if !r.Muted {
@@ -148,6 +164,7 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 	g.POST("/:room_id/screen-share/stop", StopScreenShare)
 	g.POST("/:room_id/participants/:identity/microphone", SetParticipantMicrophone)
 	g.PUT("/:room_id/participants/:identity/permissions", SetParticipantPermissions)
+	g.POST("/:room_id/participants/:identity/remove", RemoveMember)
 	g.POST("/:room_id/transfer-ownership", TransferOwnership)
 	g.POST("/:room_id/leave", LeaveRoom)
 	g.GET("/:room_id/messages", ListRoomMessages)
