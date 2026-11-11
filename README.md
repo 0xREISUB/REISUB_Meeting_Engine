@@ -180,18 +180,19 @@ Every room has one full admin, its **owner**; everyone else is a
 **participant** with the permissions given to them. Both are stored per room
 and user in `room_roles` and checked by the backend; clients never receive a
 LiveKit room-admin grant. They follow the user ID, so reconnecting or joining
-from another device keeps them. Participants' permissions are dropped when the
-room is closed.
+from another device keeps them. Participants' permissions and removals end
+when the room is closed.
 
 | Permission | Allows |
 | --- | --- |
 | `share_screen` | `POST /screen-share/start` (one sharer at a time) |
 | `mute_others` | lock and unlock microphones, stop someone else's screen share |
 | `request_unmute` | ask someone to turn their microphone on |
+| `remove_members` | `POST .../remove`: remove someone from the meeting for good |
 | `end_meeting` | `POST /close` |
 | `grant_permissions` | `PUT .../permissions`: give or take any permission, this one included |
 
-Wire names always appear in this order. The owner implicitly has all five;
+Wire names always appear in this order. The owner implicitly has all six;
 a participant has none until granted. Nobody may act on the owner (including an
 owner who is away, see succession) or on themselves: such requests fail with
 `403 target_protected`. A missing permission fails with
@@ -200,7 +201,7 @@ owner who is away, see succession) or on themselves: such requests fail with
 
 Each participant's role and permissions are published as the LiveKit
 participant attributes `meeting.role` (`"owner"` or `"participant"`) and
-`meeting.permissions` (comma-separated wire names, empty for none, all five for
+`meeting.permissions` (comma-separated wire names, empty for none, all six for
 the owner) in the join token and on every change, so clients update live.
 `POST /rooms` and `POST /rooms/join` return `"role"`, `"permissions"` (a list
 of wire names) and `"is_host"` (true only for the owner).
@@ -213,7 +214,7 @@ of wire names) and `"is_host"` (true only for the owner).
   current sharer stops their share.
 - `POST /rooms/:room_id/transfer-ownership` `{"identity":"..."}` (owner only,
   else `403 owner_required`): the connected target becomes owner, the caller a
-  participant with all five permissions. Returns
+  participant with all six permissions. Returns
   `{"identity": "...", "role": "owner", "caller_role": "participant"}`.
 - `POST /rooms/:room_id/leave`: the caller is leaving on purpose.
 - `POST /rooms/:room_id/close` (`end_meeting`) closes the room to new joins
@@ -225,12 +226,25 @@ of wire names) and `"is_host"` (true only for the owner).
   `mute_others`, the request needs `request_unmute`, so unlocking a locked
   microphone with a request needs both. Locks persist for later joins; remote
   unmute is not enabled. Becoming owner lifts a lock.
+- `POST /rooms/:room_id/participants/:identity/remove` `{}` (`remove_members`)
+  records a ban (who removed whom, when) in `room_bans`, drops the target's
+  permissions, releases the screen share if they hold it, and disconnects every
+  session of theirs with LiveKit `RemoveParticipant` (clients see the reason
+  `PARTICIPANT_REMOVED`). It also works on users who are not connected, and is
+  safe to repeat. Returns `{"identity": "...", "removed": true}`.
+
+A removed user is refused with `403 removed_from_room` by `POST /rooms/join`
+(so they get no new token and can never become acting owner) and by the chat
+endpoints. A client may still hold a LiveKit token or refresh token issued
+before the removal and reconnect to the media server directly; the
+`participant_joined` webhook removes such a session again at once. Bans are per
+user ID, never per IP address, and last until the room is closed.
 
 The former `moderator` role is gone. At the first startup after the upgrade,
 moderators became participants with `share_screen`, `mute_others`,
-`request_unmute` and `end_meeting`; in rooms that had several owners, the one
-connected and appointed earliest stayed owner and the others became
-participants with all five permissions.
+`request_unmute` and `end_meeting` (not `remove_members`); in rooms that had
+several owners, the one connected and appointed earliest stayed owner and the
+others became participants with every permission.
 
 ### Owner succession
 
@@ -245,7 +259,7 @@ reports `participant_left`/`room_finished` through the webhook):
 An owner who was away is suspended, not demoted. When they rejoin they are
 owner again and the acting owner gets back the permissions they had before. An
 acting owner who leaves also steps back. A transfer of ownership is final: it
-ends the away owner's right to reclaim, and they keep all five permissions as a
+ends the away owner's right to reclaim, and they keep all six permissions as a
 participant. Succession is idempotent, so `/leave` and the webhook may both
 arrive.
 
@@ -349,7 +363,7 @@ and be owner or receive any permission.
   used; `/guest` never answers `404` or `405`, which clients read as "this
   server requires an account".
 - Guests whose token expired or who were inactive for `GUEST_INACTIVE_AFTER`
-  (default `336h`) are deleted hourly with their room roles, microphone locks
+  (default `336h`) are deleted hourly with their room roles, bans, microphone locks
   and room display names. Chat messages stay (they store the sender's display
   name); a room left without an owner passes to the next user who joins.
 
@@ -387,6 +401,7 @@ the session token is missing or expired.
 | `invalid_room_request` | Display name or `NNN-NNN-NNN` room code missing |
 | `room_not_found` | Room does not exist or is not active |
 | `room_not_active` | Room is closing or closed |
+| `removed_from_room` | The user was removed from this room and cannot join it again (403) |
 | `permission_required` | The caller lacks the room permission this needs (403); clients treat the former `not_room_owner` the same |
 | `owner_required` | Only the owner may do this |
 | `target_protected` | Target is the owner or the caller |
