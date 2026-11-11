@@ -58,18 +58,13 @@ const (
 	RoomNotFound Code = "room_not_found"
 	// RoomNotActive: the room exists but is closing or closed.
 	RoomNotActive Code = "room_not_active"
-	// NotRoomOwner: only a room owner or moderator may do this. (The name
-	// predates moderators and is kept for compatibility.)
-	NotRoomOwner Code = "not_room_owner"
-	// OwnerRequired: only a room owner may do this.
+	// PermissionRequired: the caller lacks the room permission this needs
+	// (HTTP 403). Clients should treat the former "not_room_owner" the same.
+	PermissionRequired Code = "permission_required"
+	// OwnerRequired: only the room owner may do this.
 	OwnerRequired Code = "owner_required"
-	// TargetProtected: the target is an owner, or a moderator and the caller
-	// is a moderator.
+	// TargetProtected: the target is the room owner or the caller.
 	TargetProtected Code = "target_protected"
-	// InvalidRole: role must be "owner", "moderator" or "participant".
-	InvalidRole Code = "invalid_role"
-	// LastOwner: an owner may step down only while another owner is connected.
-	LastOwner Code = "last_owner"
 	// InvalidWebhook: a LiveKit webhook without a valid signature (HTTP 401).
 	InvalidWebhook Code = "invalid_webhook"
 	// InvalidIdentity: the participant identity is malformed.
@@ -86,8 +81,6 @@ const (
 
 // Screen sharing.
 const (
-	// ScreenShareNotAllowed: the owner has not allowed participants to share.
-	ScreenShareNotAllowed Code = "screen_share_not_allowed"
 	// ScreenShareBusy: another session holds the room's screen-share slot.
 	ScreenShareBusy Code = "screen_share_busy"
 	// PublishNotPermitted: the session may not publish media at all.

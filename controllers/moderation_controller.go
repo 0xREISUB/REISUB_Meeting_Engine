@@ -35,8 +35,7 @@ type microphonePermissionBackup struct {
 func CloseRoom(c *gin.Context) {
 	releaseRoom := lockRoomLifecycle(c.Param("room_id"))
 	defer releaseRoom()
-	// Owners and moderators may end the meeting for everyone.
-	room, _, ok := requireRoomRole(c, models.RoleModerator, true)
+	room, _, ok := requirePermission(c, models.PermissionEndMeeting, true)
 	if !ok {
 		return
 	}
@@ -59,6 +58,11 @@ func CloseRoom(c *gin.Context) {
 		return
 	}
 	forgetShareCheck(room.RoomID)
+	// Participants' permissions end with the room.
+	if err = database.DB.Where("room_id = ? AND role = ?", room.RoomID, models.RoleParticipant).Delete(&models.RoomRole{}).Error; err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapandı fakat izinler silinemedi. Tekrar deneyin.")
+		return
+	}
 	if err = database.DB.Model(&room).Update("status", models.RoomStatusClosed).Error; err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda kapandı fakat durum kaydedilemedi. Tekrar deneyin.")
 		return
@@ -98,7 +102,11 @@ type microphoneModerationRequest struct {
 func SetParticipantMicrophone(c *gin.Context) {
 	releaseRoom := lockRoomLifecycle(c.Param("room_id"))
 	defer releaseRoom()
-	room, callerRole, ok := requireRoomRole(c, models.RoleModerator, false)
+	// Locking needs mute_others and an unmute request needs request_unmute;
+	// the exact need depends on the target's lock, checked below.
+	room, caller, ok := requireAccess(c, func(a access) bool {
+		return a.has(models.PermissionMuteOthers) || a.has(models.PermissionRequestUnmute)
+	}, false)
 	if !ok {
 		return
 	}
@@ -112,13 +120,25 @@ func SetParticipantMicrophone(c *gin.Context) {
 		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidIdentity, "Katılımcı kimliği geçersiz")
 		return
 	}
-	targetRole, err := effectiveRole(room.RoomID, targetID)
+	protected, err := isProtectedTarget(room.RoomID, c.MustGet("user").(models.User).ID, targetID)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
 		return
 	}
-	if !canActOn(callerRole, targetRole) {
+	if protected {
 		respondTargetProtected(c)
+		return
+	}
+	wasLocked, err := microphoneLocked(room.RoomID, targetID)
+	if err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+		return
+	}
+	// Locking, unlocking a locked microphone, or any lock change without an
+	// unmute request needs mute_others; asking to unmute needs request_unmute.
+	needsMute := *input.Locked || wasLocked || !input.RequestUnmute
+	if (needsMute && !caller.has(models.PermissionMuteOthers)) || (input.RequestUnmute && !caller.has(models.PermissionRequestUnmute)) {
+		respondPermissionRequired(c)
 		return
 	}
 	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)

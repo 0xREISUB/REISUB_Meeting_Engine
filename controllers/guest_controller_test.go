@@ -149,35 +149,35 @@ func TestGuestsCreateJoinModerateAndSucceed(t *testing.T) {
 	if w := jsonRequest(r, http.MethodPost, base+"/participants/"+guestSession.Identity+"/microphone", hostToken, `{"locked":true}`); w.Code != 200 {
 		t.Fatal("guest owner could not lock a microphone:", w.Code, w.Body.String())
 	}
-	if w := jsonRequest(r, http.MethodPost, base+"/participants/"+guestSession.Identity+"/role", hostToken, `{"role":"moderator"}`); w.Code != 200 {
-		t.Fatal("guest owner could not appoint a moderator:", w.Code, w.Body.String())
+	if w := jsonRequest(r, http.MethodPut, base+"/participants/"+guestSession.Identity+"/permissions", hostToken, `{"permissions":["share_screen","mute_others"]}`); w.Code != 200 {
+		t.Fatal("guest owner could not grant permissions:", w.Code, w.Body.String())
 	}
-	if guestSession.Attributes[roleAttribute] != "moderator" {
-		t.Fatal("guest moderator attribute not published")
+	if guestSession.Attributes[permissionsAttribute] != "share_screen,mute_others" {
+		t.Fatal("guest permissions attribute not published")
 	}
-	// A guest moderator still cannot act on the owner.
+	// A guest with mute_others still cannot act on the owner.
 	assertAPIError(t, jsonRequest(r, http.MethodPost, base+"/participants/"+hostSession.Identity+"/microphone", guestToken, `{"locked":true}`),
 		403, apierror.TargetProtected, "Bu katılımcı üzerinde işlem yapma yetkiniz yok")
 	if w := jsonRequest(r, http.MethodPost, base+"/screen-share/start", guestToken, `{"identity":"`+guestSession.Identity+`"}`); w.Code != 200 {
-		t.Fatal("guest moderator could not share:", w.Code, w.Body.String())
+		t.Fatal("guest with share_screen could not share:", w.Code, w.Body.String())
 	}
 	// Chat shows the name given when joining, never the guest nick.
 	if w := jsonRequest(r, http.MethodPost, base+"/messages", guestToken, `{"content":"merhaba"}`); w.Code != 201 || !strings.Contains(w.Body.String(), `"sender":"Mehmet"`) || strings.Contains(w.Body.String(), models.GuestNickPrefix) {
 		t.Fatal("guest chat:", w.Code, w.Body.String())
 	}
 
-	// The LiveKit webhook reports the guest owner gone: the guest moderator
-	// becomes acting owner.
+	// The LiveKit webhook reports the guest owner gone: the guest with
+	// permissions becomes acting owner.
 	f.participants = []*livekit.ParticipantInfo{guestSession}
 	event := &livekit.WebhookEvent{Event: "participant_left", Room: &livekit.Room{Name: room.RoomID}, Participant: &livekit.ParticipantInfo{Identity: hostSession.Identity}}
 	if w := serve(r, signedWebhook(t, event, "test-key", testSecret, false)); w.Code != http.StatusNoContent {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if role, _ := effectiveRole(room.RoomID, guest.ID); role != models.RoleOwner {
-		t.Fatalf("guest moderator did not succeed the guest owner: %s", role)
+	if a, _ := roomAccess(room.RoomID, guest.ID); a.Role != models.RoleOwner {
+		t.Fatalf("guest with permissions did not succeed the guest owner: %s", a.Role)
 	}
-	if role, _ := effectiveRole(room.RoomID, host.ID); role != models.RoleParticipant {
-		t.Fatalf("departed guest owner kept powers: %s", role)
+	if a, _ := roomAccess(room.RoomID, host.ID); a.Role != models.RoleParticipant {
+		t.Fatalf("departed guest owner kept powers: %s", a.Role)
 	}
 }
 

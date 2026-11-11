@@ -1,32 +1,88 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
-// Per-room roles. A user without a RoomRole row is a plain participant.
+// Per-room roles. A room has one full admin, its owner; everyone else is a
+// participant with the permissions granted to them. A user without a
+// RoomRole row is a participant without permissions.
 const (
 	RoleOwner       = "owner"
-	RoleModerator   = "moderator"
 	RoleParticipant = "participant"
 )
 
-// RoomRole grants a user a role in one room. It is keyed by user ID, so the
-// role survives reconnects and new devices.
+// Permissions, in their fixed wire order. The owner implicitly has all of
+// them.
+const (
+	PermissionShareScreen      = "share_screen"
+	PermissionMuteOthers       = "mute_others"
+	PermissionRequestUnmute    = "request_unmute"
+	PermissionEndMeeting       = "end_meeting"
+	PermissionGrantPermissions = "grant_permissions"
+)
+
+// AllPermissions lists every permission in wire order.
+var AllPermissions = []string{
+	PermissionShareScreen,
+	PermissionMuteOthers,
+	PermissionRequestUnmute,
+	PermissionEndMeeting,
+	PermissionGrantPermissions,
+}
+
+// NormalizePermissions returns the known names among names, deduplicated and
+// in wire order. Unknown names are ignored.
+func NormalizePermissions(names []string) []string {
+	wanted := map[string]bool{}
+	for _, name := range names {
+		wanted[strings.TrimSpace(name)] = true
+	}
+	normalized := []string{}
+	for _, permission := range AllPermissions {
+		if wanted[permission] {
+			normalized = append(normalized, permission)
+		}
+	}
+	return normalized
+}
+
+// ParsePermissions reads a stored comma-separated permission list.
+func ParsePermissions(value string) []string {
+	if value == "" {
+		return []string{}
+	}
+	return NormalizePermissions(strings.Split(value, ","))
+}
+
+// JoinPermissions is the stored and LiveKit attribute form of permissions.
+func JoinPermissions(permissions []string) string {
+	return strings.Join(NormalizePermissions(permissions), ",")
+}
+
+// RoomRole holds a user's role and permissions in one room. It is keyed by
+// user ID, so both survive reconnects and new devices.
 type RoomRole struct {
-	ID        uint   `gorm:"primaryKey"`
-	RoomID    string `gorm:"uniqueIndex:room_user_role;not null"`
-	UserID    uint   `gorm:"uniqueIndex:room_user_role;not null"`
-	Role      string `gorm:"not null"`
+	ID     uint   `gorm:"primaryKey"`
+	RoomID string `gorm:"uniqueIndex:room_user_role;not null"`
+	UserID uint   `gorm:"uniqueIndex:room_user_role;not null"`
+	Role   string `gorm:"not null"`
+	// Permissions is a participant's comma-separated permission list in wire
+	// order; empty for owners, who have all of them.
+	Permissions string `gorm:"not null;default:''"`
+	// GrantedAt is when the role, or a participant's first permission, was
+	// granted. Succession prefers the earliest.
 	GrantedAt time.Time
 	// GrantedBy is the user who granted the role; 0 means the system
-	// (succession or the single-owner migration).
+	// (succession or a migration).
 	GrantedBy uint
 	// Suspended marks an owner who was away when succession ran. A suspended
 	// owner has no powers until they rejoin, when they become owner again
-	// and every acting owner reverts to PreviousRole.
+	// and the acting owner gets PreviousPermissions back.
 	Suspended bool `gorm:"not null;default:false"`
 	// Acting marks an owner appointed by succession rather than by another
-	// owner. PreviousRole ("moderator" or "") is restored when a suspended
-	// owner returns.
-	Acting       bool `gorm:"not null;default:false"`
-	PreviousRole string
+	// owner. PreviousPermissions are restored when they step back.
+	Acting              bool `gorm:"not null;default:false"`
+	PreviousPermissions string
 }
