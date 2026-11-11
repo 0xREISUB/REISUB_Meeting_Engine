@@ -18,6 +18,14 @@ const (
 	guestWindow     = 10 * time.Minute
 )
 
+// Requests under /rooms that answer 404 (an unknown room code, mostly) are
+// limited to roomMissesPerWindow per client IP per roomMissWindow; then that
+// address gets 429 for the rest of the window.
+const (
+	roomMissesPerWindow = 30
+	roomMissWindow      = 10 * time.Minute
+)
+
 // SetupRoutes registers the public HTTP API.
 //
 // When WEB_DIR names a Flutter web build, it is served for every GET that no
@@ -48,7 +56,9 @@ func SetupRoutes(r *gin.Engine) {
 	r.POST("/livekit/webhook", controllers.LiveKitWebhook)
 
 	roomRoutes := r.Group("/rooms")
-	roomRoutes.Use(middleware.RequireAuth())
+	// A room code is the only secret needed to join, and a 404 tells a wrong
+	// code apart: cap wrong guesses per address.
+	roomRoutes.Use(middleware.LimitNotFound(roomMissesPerWindow, roomMissWindow), middleware.RequireAuth())
 	{
 		roomRoutes.POST("", controllers.CreateRoom)
 		roomRoutes.POST("/join", controllers.JoinRoom)
