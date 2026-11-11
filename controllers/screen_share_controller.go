@@ -179,6 +179,9 @@ func GetMeetingState(c *gin.Context) {
 	if !ok {
 		return
 	}
+	// Everyone in a meeting polls this, which keeps the room from being
+	// closed as idle.
+	markRoomUsed(&room, false)
 	if room.ScreenShareIdentity == "" || shareRecentlyVerified(room) {
 		respondState(c, room)
 		return
