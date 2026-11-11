@@ -394,7 +394,7 @@ migration).
 public rules as a flat JSON object:
 
 ```json
-{"guests_allowed": true}
+{"guests_allowed": true, "meeting_time_limit_minutes": 0, "meeting_cooldown_minutes": 0}
 ```
 
 New keys may be added later; clients ignore keys they do not know. It contains
@@ -403,6 +403,35 @@ nothing private.
 | Setting (`config/stack.env`) | Default | Effect |
 | --- | --- | --- |
 | `GUESTS_ALLOWED` | `true` | `false` makes meetings need an account (see below). A value that is not `true`/`false` also disallows guests, and the backend logs a warning at startup. |
+| `MEETING_TIME_LIMIT_MINUTES` | `0` (off) | How long rooms created from now on may last (see below). |
+| `MEETING_COOLDOWN_MINUTES` | `0` (off) | How long the creator and owner of a room that reached its limit wait before creating another. |
+
+A minutes value that is not a whole number of minutes counts as `0`, with a
+warning at startup.
+
+### Meeting time limit
+
+A room created while `MEETING_TIME_LIMIT_MINUTES` is set gets
+`ends_at = created_at + limit`; rooms created before keep what they had.
+For limited rooms, `POST /rooms`, `POST /rooms/join`, the waiting room's
+`admitted` answer and `GET /rooms/:room_id/state` add `"seconds_left"` (whole
+seconds, never negative; clients count down from it, so device clocks do not
+matter) and `"ends_at"` (RFC 3339 UTC). Both are omitted for rooms without a
+limit.
+
+At `ends_at` a timer ends the room exactly like `POST /close`: LiveKit deletes
+the media room, so clients are disconnected with `ROOM_DELETED`, and the room
+is marked `ended_at_limit`. Joining after `ends_at` answers `404`. At startup,
+rooms already past their end are ended at once and the rest are scheduled, so
+a restart neither skips nor extends a limit; a failed end is retried every
+30 s.
+
+When a room ends at its limit, its creator and whoever owned it then cannot
+create a room until `ends_at + MEETING_COOLDOWN_MINUTES`:
+`POST /rooms` answers `429 {"code":"meeting_cooldown","retry_after_seconds":n}`
+with `Retry-After`. They may still join other people's meetings. Rooms ended
+any other way (`POST /close`, idle cleanup) start no wait. The wait is per user
+ID.
 
 Changing it needs `docker compose --env-file config/stack.env up -d --no-deps backend`;
 LiveKit and running meetings are not affected.
@@ -460,6 +489,7 @@ the session token is missing or expired.
 | `nick_reserved` | Nicks starting with `guest-` are reserved for guests |
 | `guests_not_allowed` | The server requires an account: no guest sessions (403, see `GET /policy`) |
 | `rate_limited` | Too many requests from this address; retry later (429) |
+| `meeting_cooldown` | Your last meeting reached its time limit; wait `retry_after_seconds` before creating another (429) |
 | `nick_taken` | Nick already registered |
 | `user_not_found` | No account with this nick |
 | `wrong_password` | Password does not match |
