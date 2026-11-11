@@ -35,10 +35,12 @@ type roomResponse struct {
 	LiveKitURL  string `json:"livekit_url"`
 	Token       string `json:"token"`
 	Participant string `json:"participant"`
-	// IsHost is true for owners and moderators so older clients still show
-	// the moderation controls; Role is the precise room role.
+	// IsHost is true only for the owner; older clients still read it.
 	IsHost bool   `json:"is_host"`
 	Role   string `json:"role"`
+	// Permissions at join time, in wire order; all of them for the owner.
+	// Later changes arrive as the meeting.permissions LiveKit attribute.
+	Permissions []string `json:"permissions"`
 	// InviteURL is PUBLIC_WEB_URL + "/j/" + room ID; omitted when
 	// PUBLIC_WEB_URL is not configured.
 	InviteURL string `json:"invite_url,omitempty"`
@@ -98,7 +100,7 @@ func CreateRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
 		return
 	}
-	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), models.RoleOwner)
+	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), ownerAccess())
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
 		return
@@ -141,12 +143,12 @@ func JoinRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
 		return
 	}
-	role, err := effectiveRole(room.RoomID, user.ID)
+	userAccess, err := roomAccess(room.RoomID, user.ID)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
 		return
 	}
-	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), role)
+	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), userAccess)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
 		return
@@ -175,7 +177,7 @@ func newRoomID() (string, error) {
 	return "", errors.New("no free room code found")
 }
 
-func makeRoomResponse(room models.Room, userID uint, participant, role string) (roomResponse, error) {
+func makeRoomResponse(room models.Room, userID uint, participant string, a access) (roomResponse, error) {
 	apiKey := os.Getenv("LIVEKIT_API_KEY")
 	apiSecret := os.Getenv("LIVEKIT_API_SECRET")
 	if apiKey == "" || apiSecret == "" {
@@ -194,13 +196,16 @@ func makeRoomResponse(room models.Room, userID uint, participant, role string) (
 	if err != nil {
 		return roomResponse{}, fmt.Errorf("Mikrofon yetkisi okunamadı")
 	}
-	// Screen sources are never part of a join token; see StartScreenShare.
+	// Screen sources are never part of a join token, even with share_screen:
+	// only the holder of the room's single screen-share slot receives them
+	// (see StartScreenShare).
 	sources := []livekit.TrackSource{livekit.TrackSource_CAMERA, livekit.TrackSource_MICROPHONE}
 	if locked {
 		sources = []livekit.TrackSource{livekit.TrackSource_CAMERA}
 	}
 	grant.SetCanPublishSources(sources)
-	attrs := map[string]string{microphoneLockAttribute: "false", roleAttribute: roleAttributeValue(role)}
+	attrs := a.attributes()
+	attrs[microphoneLockAttribute] = "false"
 	if locked {
 		attrs[microphoneLockAttribute] = "true"
 		attrs[microphoneSourcesAttribute] = `{"can_publish":true,"sources":null}`
@@ -222,8 +227,9 @@ func makeRoomResponse(room models.Room, userID uint, participant, role string) (
 		LiveKitURL:  liveKitURL(),
 		Token:       token,
 		Participant: participant,
-		IsHost:      roleRank(role) >= roleRank(models.RoleModerator),
-		Role:        role,
+		IsHost:      a.Role == models.RoleOwner,
+		Role:        a.Role,
+		Permissions: a.Permissions,
 		InviteURL:   inviteURL(room.RoomID),
 	}, nil
 }

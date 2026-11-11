@@ -144,11 +144,10 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 	g.POST("/join", JoinRoom)
 	g.POST("/:room_id/close", CloseRoom)
 	g.GET("/:room_id/state", GetMeetingState)
-	g.POST("/:room_id/settings", UpdateMeetingSettings)
 	g.POST("/:room_id/screen-share/start", StartScreenShare)
 	g.POST("/:room_id/screen-share/stop", StopScreenShare)
 	g.POST("/:room_id/participants/:identity/microphone", SetParticipantMicrophone)
-	g.POST("/:room_id/participants/:identity/role", SetParticipantRole)
+	g.PUT("/:room_id/participants/:identity/permissions", SetParticipantPermissions)
 	g.POST("/:room_id/transfer-ownership", TransferOwnership)
 	g.POST("/:room_id/leave", LeaveRoom)
 	g.GET("/:room_id/messages", ListRoomMessages)
@@ -169,7 +168,7 @@ func TestModerationRequiresAuthenticatedOwner(t *testing.T) {
 	for _, path := range []string{"/rooms/123-456-789/close", microphonePath()} {
 		assertAPIError(t, moderationRequest(r, path, "", `{"locked":true}`), 401, apierror.AuthRequired, "Kimlik doğrulaması gerekli")
 		assertAPIError(t, moderationRequest(r, path, "expired-token", `{"locked":true}`), 401, apierror.InvalidToken, "Geçersiz token")
-		assertAPIError(t, moderationRequest(r, path, "guest-token", `{"locked":true}`), 403, apierror.NotRoomOwner, "Bu işlem yalnızca oda yöneticisine açık")
+		assertAPIError(t, moderationRequest(r, path, "guest-token", `{"locked":true}`), 403, apierror.PermissionRequired, "Bu işlem için yetkiniz yok")
 	}
 	if f.updates != 0 || f.deletes != 0 {
 		t.Fatal("unauthorized request reached LiveKit")

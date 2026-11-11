@@ -44,29 +44,26 @@ func hasSource(p *livekit.ParticipantInfo, s livekit.TrackSource) bool {
 	}
 	return false
 }
+
+// allowSharing grants the guest share_screen.
 func allowSharing(t *testing.T, r *gin.Engine) {
 	t.Helper()
-	w := moderationRequest(r, "/rooms/123-456-789/settings", "owner-token", `{"allow_participant_screen_share":true}`)
+	w := permissionsRequest(r, "owner-token", 22, "share_screen")
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 }
-func TestScreenShareDefaultClosedAndOnlyOwnerChangesSettings(t *testing.T) {
+func TestScreenShareNeedsPermissionAndIsExclusive(t *testing.T) {
 	r, f := moderationTestRouter(t)
 	addScreenOwner(f)
-	var room models.Room
-	database.DB.First(&room)
-	if room.AllowParticipantScreenShare {
-		t.Fatal("guests allowed by default")
-	}
 	for _, token := range []string{"", "guest-token"} {
-		w := moderationRequest(r, "/rooms/123-456-789/settings", token, `{"allow_participant_screen_share":true}`)
+		w := shareRequest(r, "start", token, testParticipantIdentity)
 		if w.Code != 401 && w.Code != 403 {
 			t.Fatal(w.Code)
 		}
 	}
-	assertAPIError(t, shareRequest(r, "start", "guest-token", testParticipantIdentity), 403, apierror.ScreenShareNotAllowed, "Oda sahibi katılımcıların ekran paylaşmasına izin vermiyor")
-	if w := shareRequest(r, "start", "owner-token", ownerIdentity); w.Code != 200 {
+	assertAPIError(t, shareRequest(r, "start", "guest-token", testParticipantIdentity), 403, apierror.PermissionRequired, "Bu işlem için yetkiniz yok")
+	if w := shareRequest(r, "start", "owner-token", ownerIdentity); w.Code != 200 || w.Body.String() != `{"screen_share_identity":"`+ownerIdentity+`"}` {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	if !hasSource(f.participants[1], livekit.TrackSource_SCREEN_SHARE) || hasSource(f.participants[0], livekit.TrackSource_SCREEN_SHARE) {
@@ -143,7 +140,7 @@ func TestScreenSharePermissionCannotBeForgedAndJWTNeverGrantsIt(t *testing.T) {
 		t.Fatal("rejoin can bypass singleton")
 	}
 }
-func TestDisablingGuestSharingRevokesCurrentScreenAndPreservesMicLock(t *testing.T) {
+func TestRevokingGuestSharingRevokesCurrentScreenAndPreservesMicLock(t *testing.T) {
 	r, f := moderationTestRouter(t)
 	allowSharing(t, r)
 	if w := moderationRequest(r, microphonePath(), "owner-token", `{"locked":true}`); w.Code != 200 {
@@ -159,7 +156,7 @@ func TestDisablingGuestSharingRevokesCurrentScreenAndPreservesMicLock(t *testing
 	if !hasSource(f.participants[0], livekit.TrackSource_SCREEN_SHARE) {
 		t.Fatal("mic unlock lost active screen")
 	}
-	w := moderationRequest(r, "/rooms/123-456-789/settings", "owner-token", `{"allow_participant_screen_share":false}`)
+	w := permissionsRequest(r, "owner-token", 22)
 	if w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -242,7 +239,7 @@ func assertMuted(t *testing.T, f *fakeModeration, want ...string) {
 	}
 }
 
-func TestDisablingGuestSharingMutesScreenAndScreenAudioTracks(t *testing.T) {
+func TestRevokingGuestSharingMutesScreenAndScreenAudioTracks(t *testing.T) {
 	r, f := moderationTestRouter(t)
 	allowSharing(t, r)
 	if w := shareRequest(r, "start", "guest-token", testParticipantIdentity); w.Code != 200 {
@@ -250,8 +247,10 @@ func TestDisablingGuestSharingMutesScreenAndScreenAudioTracks(t *testing.T) {
 	}
 	guest := f.participants[0]
 	publishScreen(guest, livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO)
-	w := moderationRequest(r, "/rooms/123-456-789/settings", "owner-token", `{"allow_participant_screen_share":false}`)
-	if w.Code != 200 || w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+	if w := permissionsRequest(r, "owner-token", 22); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := stateRequest(r, "owner-token"); w.Code != 200 || w.Body.String() != `{"screen_share_identity":""}` {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	assertMuted(t, f, "screen", "screen-audio")
@@ -304,7 +303,7 @@ func TestStaleReleaseTreatsScreenAudioAsAccompanimentOnly(t *testing.T) {
 	// The video track ended but screen audio is still live: release the slot
 	// and mute the leftover audio rather than letting it hold the room.
 	owner.Tracks[0].Muted = true
-	if w := stateRequest(r, "guest-token"); w.Code != 200 || w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+	if w := stateRequest(r, "guest-token"); w.Code != 200 || w.Body.String() != `{"screen_share_identity":""}` {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	assertMuted(t, f, "screen", "screen-audio")
@@ -320,17 +319,17 @@ func TestRevokeToleratesUnpublishedTracksAndReportsMuteFailures(t *testing.T) {
 	publishScreen(f.participants[0], livekit.TrackSource_SCREEN_SHARE, livekit.TrackSource_SCREEN_SHARE_AUDIO)
 
 	f.muteErr = errors.New("network unavailable")
-	assertAPIError(t, moderationRequest(r, "/rooms/123-456-789/settings", "owner-token", `{"allow_participant_screen_share":false}`),
-		502, apierror.MediaServerError, "İzin kapatıldı fakat paylaşım durdurulamadı. Tekrar deneyin.")
+	assertAPIError(t, permissionsRequest(r, "owner-token", 22),
+		502, apierror.MediaServerError, "İzinler kaydedildi fakat tüm oturumlara uygulanamadı. Tekrar deneyin.")
 	var room models.Room
 	database.DB.First(&room)
-	if room.AllowParticipantScreenShare || room.ScreenShareIdentity == "" {
-		t.Fatal("failed revoke must keep the slot for a retry but persist the restriction")
+	if storedAccess(t, 22).has(models.PermissionShareScreen) || room.ScreenShareIdentity == "" {
+		t.Fatal("failed revoke must keep the slot for a retry but persist the revocation")
 	}
 
 	// The track may already be gone once the source permission is revoked.
 	f.muteErr = twirp.NotFoundError("track not found")
-	if w := moderationRequest(r, "/rooms/123-456-789/settings", "owner-token", `{"allow_participant_screen_share":false}`); w.Code != 200 {
+	if w := permissionsRequest(r, "owner-token", 22); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	database.DB.First(&room)
@@ -343,7 +342,7 @@ func TestStatePollSkipsLiveKitWhenNobodyShares(t *testing.T) {
 	r, f := moderationTestRouter(t)
 	for i := 0; i < 5; i++ {
 		w := stateRequest(r, "guest-token")
-		if w.Code != 200 || w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+		if w.Code != 200 || w.Body.String() != `{"screen_share_identity":""}` {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}
@@ -359,7 +358,7 @@ func TestStatePollAsksOnlyForHolderAndReusesRecentConfirmation(t *testing.T) {
 	shareRequest(r, "start", "owner-token", ownerIdentity)
 	publishScreen(f.participants[1], livekit.TrackSource_SCREEN_SHARE)
 	f.lists, f.gets = 0, 0
-	want := `{"allow_participant_screen_share":false,"screen_share_identity":"` + ownerIdentity + `"}`
+	want := `{"screen_share_identity":"` + ownerIdentity + `"}`
 	for _, token := range []string{"guest-token", "owner-token", "guest-token", "owner-token"} {
 		if w := stateRequest(r, token); w.Code != 200 || w.Body.String() != want {
 			t.Fatal(w.Code, w.Body.String())
@@ -372,7 +371,7 @@ func TestStatePollAsksOnlyForHolderAndReusesRecentConfirmation(t *testing.T) {
 	if w := shareRequest(r, "stop", "owner-token", ownerIdentity); w.Code != 200 {
 		t.Fatal(w.Code)
 	}
-	if w := stateRequest(r, "guest-token"); w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+	if w := stateRequest(r, "guest-token"); w.Body.String() != `{"screen_share_identity":""}` {
 		t.Fatal("stale cached holder reported after stop:", w.Body.String())
 	}
 }
@@ -382,7 +381,7 @@ func TestStatePollReleasesHolderWhoLeftTheRoom(t *testing.T) {
 	addScreenOwner(f)
 	shareRequest(r, "start", "owner-token", ownerIdentity)
 	f.participants = f.participants[:1] // the owner disconnected within the grace period
-	if w := stateRequest(r, "guest-token"); w.Code != 200 || w.Body.String() != `{"allow_participant_screen_share":false,"screen_share_identity":""}` {
+	if w := stateRequest(r, "guest-token"); w.Code != 200 || w.Body.String() != `{"screen_share_identity":""}` {
 		t.Fatal(w.Code, w.Body.String())
 	}
 }

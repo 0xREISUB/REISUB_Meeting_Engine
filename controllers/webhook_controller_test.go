@@ -58,8 +58,8 @@ func serve(r *gin.Engine, req *http.Request) *httptest.ResponseRecorder {
 }
 
 func TestWebhookRejectsUnsignedOrForgedCalls(t *testing.T) {
-	r, f := rolesTestRouter(t)
-	disconnect(f, 11, owner2ID)
+	r, f := permissionsTestRouter(t)
+	disconnect(f, 11)
 	unsigned := httptest.NewRequest(http.MethodPost, "/livekit/webhook", bytes.NewBufferString(`{"event":"participant_left"}`))
 	for name, req := range map[string]*http.Request{
 		"no signature":  unsigned,
@@ -71,14 +71,13 @@ func TestWebhookRejectsUnsignedOrForgedCalls(t *testing.T) {
 			assertAPIError(t, serve(r, req), 401, apierror.InvalidWebhook, "Webhook doğrulanamadı")
 		})
 	}
-	if storedRole(t, 11) != models.RoleOwner || storedRole(t, modID) != models.RoleModerator || f.updates != 0 {
+	if storedAccess(t, 11).Role != models.RoleOwner || storedAccess(t, modID).Role != models.RoleParticipant || f.updates != 0 {
 		t.Fatal("an unauthenticated webhook changed roles")
 	}
 }
 
 func TestParticipantLeftWebhookRunsSuccessionOnce(t *testing.T) {
-	r, f := rolesTestRouter(t)
-	disconnect(f, owner2ID)
+	r, f := permissionsTestRouter(t)
 	// LiveKit may still list the departing session; the event excludes it.
 	if w := serve(r, signedWebhook(t, ownerLeftEvent(), "test-key", testSecret, false)); w.Code != http.StatusNoContent {
 		t.Fatal(w.Code, w.Body.String())
@@ -92,15 +91,15 @@ func TestParticipantLeftWebhookRunsSuccessionOnce(t *testing.T) {
 	disconnect(f, 11)
 	serve(r, signedWebhook(t, ownerLeftEvent(), "test-key", testSecret, false))
 	leaveRequest(r, 11)
-	if again := mustRow(t, modID); again.GrantedAt != successor.GrantedAt || f.updates != updates || storedRole(t, mod2ID) != models.RoleModerator {
+	if again := mustRow(t, modID); again.GrantedAt != successor.GrantedAt || f.updates != updates || storedAccess(t, mod2ID).Role != models.RoleParticipant {
 		t.Fatal("repeated departure changed roles again")
 	}
 }
 
-func TestRoomFinishedWebhookSuspendsOwnersAndOtherEventsAreIgnored(t *testing.T) {
-	r, f := rolesTestRouter(t)
+func TestRoomFinishedWebhookSuspendsOwnerAndOtherEventsAreIgnored(t *testing.T) {
+	r, f := permissionsTestRouter(t)
 	other := &livekit.WebhookEvent{Event: webhook.EventParticipantJoined, Room: &livekit.Room{Name: "123-456-789"}, Participant: &livekit.ParticipantInfo{Identity: identityFor(22)}}
-	if w := serve(r, signedWebhook(t, other, "test-key", testSecret, false)); w.Code != http.StatusNoContent || storedRole(t, 11) != models.RoleOwner {
+	if w := serve(r, signedWebhook(t, other, "test-key", testSecret, false)); w.Code != http.StatusNoContent || storedAccess(t, 11).Role != models.RoleOwner {
 		t.Fatal("unrelated event changed state", w.Code)
 	}
 	f.participants = nil // the media room emptied out
@@ -108,8 +107,8 @@ func TestRoomFinishedWebhookSuspendsOwnersAndOtherEventsAreIgnored(t *testing.T)
 	if w := serve(r, signedWebhook(t, finished, "test-key", testSecret, false)); w.Code != http.StatusNoContent {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	if !mustRow(t, 11).Suspended || !mustRow(t, owner2ID).Suspended {
-		t.Fatal("owners not suspended when the room emptied")
+	if !mustRow(t, 11).Suspended {
+		t.Fatal("owner not suspended when the room emptied")
 	}
 	if joinAs(t, r, 22).Role != models.RoleOwner {
 		t.Fatal("first joiner after an empty room is not owner")
