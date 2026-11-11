@@ -68,6 +68,12 @@ const (
 	// RemovedFromRoom: the user was removed from this room and may not join
 	// or use it again until it is closed (HTTP 403).
 	RemovedFromRoom Code = "removed_from_room"
+	// WaitingRequestNotFound: the waiting request does not exist, belongs to
+	// someone else, expired, or ended with the room (HTTP 404).
+	WaitingRequestNotFound Code = "waiting_request_not_found"
+	// NotAdmitted: the room's waiting room is on and the caller has not been
+	// let in yet (HTTP 403).
+	NotAdmitted Code = "not_admitted"
 	// InvalidWebhook: a LiveKit webhook without a valid signature (HTTP 401).
 	InvalidWebhook Code = "invalid_webhook"
 	// InvalidIdentity: the participant identity is malformed.

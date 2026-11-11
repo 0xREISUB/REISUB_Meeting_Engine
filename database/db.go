@@ -69,10 +69,10 @@ func Migrate(db *gorm.DB) error {
 			if err := convertRolesToPermissions(tx); err != nil {
 				return err
 			}
-			return tx.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomMember{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}, &models.RoomBan{})
+			return tx.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomMember{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}, &models.RoomBan{}, &models.WaitingRequest{})
 		})
 	}
-	return db.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomRole{}, &models.RoomMember{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}, &models.RoomBan{})
+	return db.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomRole{}, &models.RoomMember{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}, &models.RoomBan{}, &models.WaitingRequest{})
 }
 
 // legacyModerator is the removed "moderator" role. Moderators could do what

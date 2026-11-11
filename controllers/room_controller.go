@@ -126,38 +126,63 @@ func JoinRoom(c *gin.Context) {
 	if !rejectBanned(c, room.RoomID) {
 		return
 	}
+	user := c.MustGet("user").(models.User)
+	if room.WaitingRoom {
+		direct, err := skipsWaitingRoom(room.RoomID, user.ID)
+		if err != nil {
+			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+			return
+		}
+		if !direct {
+			requestID, err := requestToWait(room.RoomID, user.ID, strings.TrimSpace(input.Name))
+			if err != nil {
+				apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Katılma isteği kaydedilemedi")
+				return
+			}
+			c.JSON(http.StatusAccepted, gin.H{"status": models.WaitingStatusWaiting, "request_id": requestID})
+			return
+		}
+	}
+	response, ok := enterRoom(c, &room, user.ID, input.Name)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusOK, response)
+}
 
+// enterRoom prepares the media room and issues join credentials to a user
+// who may enter. It writes the error response itself on failure.
+func enterRoom(c *gin.Context, room *models.Room, userID uint, name string) (roomResponse, bool) {
 	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
 		apierror.Respond(c, http.StatusServiceUnavailable, apierror.MediaServerNotConfigured, "Toplantı sunucusu yapılandırılmamış")
-		return
+		return roomResponse{}, false
 	}
 	// Empty LiveKit rooms expire independently of the persisted room code.
 	// This is idempotent for an existing media session, and serialized with close.
 	if _, err = service.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: room.RoomID}); err != nil {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Toplantı sunucusunda oda hazırlanamadı")
-		return
+		return roomResponse{}, false
 	}
-	user := c.MustGet("user").(models.User)
-	if err = claimOwnershipOnJoin(ctx, service, &room, user.ID); err != nil {
+	if err = claimOwnershipOnJoin(ctx, service, room, userID); err != nil {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Oda sahipliği güncellenemedi. Tekrar deneyin.")
-		return
+		return roomResponse{}, false
 	}
-	if err = rememberDisplayName(room.RoomID, user.ID, input.Name); err != nil {
+	if err = rememberDisplayName(room.RoomID, userID, name); err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
-		return
+		return roomResponse{}, false
 	}
-	userAccess, err := roomAccess(room.RoomID, user.ID)
+	userAccess, err := roomAccess(room.RoomID, userID)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
-		return
+		return roomResponse{}, false
 	}
-	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), userAccess)
+	response, err := makeRoomResponse(*room, userID, strings.TrimSpace(name), userAccess)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
-		return
+		return roomResponse{}, false
 	}
-	c.JSON(http.StatusOK, response)
+	return response, true
 }
 
 // newRoomID returns an unused room code of the form NNN-NNN-NNN. The code is
@@ -243,8 +268,12 @@ func boolPtr(value bool) *bool { return &value }
 // rememberDisplayName stores the name the user chose for this room; the
 // latest create/join wins.
 func rememberDisplayName(roomID string, userID uint, name string) error {
+	return rememberDisplayNameTx(database.DB, roomID, userID, name)
+}
+
+func rememberDisplayNameTx(db *gorm.DB, roomID string, userID uint, name string) error {
 	member := models.RoomMember{RoomID: roomID, UserID: userID, DisplayName: strings.TrimSpace(name)}
-	return database.DB.Clauses(clause.OnConflict{
+	return db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "room_id"}, {Name: "user_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"display_name", "updated_at"}),
 	}).Create(&member).Error

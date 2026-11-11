@@ -21,6 +21,9 @@ type Room struct {
 	Status    string `gorm:"not null;default:active"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	// WaitingRoom makes newcomers wait until someone with admit_members
+	// lets them in.
+	WaitingRoom bool `gorm:"not null;default:false"`
 	// ScreenShareIdentity is the LiveKit identity holding the room's single
 	// screen-share slot; empty when nobody shares.
 	ScreenShareIdentity string

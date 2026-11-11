@@ -50,7 +50,7 @@ func removeSessions(ctx context.Context, svc liveKitRoomService, roomID string, 
 }
 
 // RemoveMember removes a user from the room for good: it records a ban,
-// drops their permissions, releases the screen share if they hold it, and
+// drops their permissions and waiting request, releases the screen share if they hold it, and
 // disconnects all their sessions. It works on users who are not connected
 // too. Needs remove_members; nobody may remove the owner or themselves.
 func RemoveMember(c *gin.Context) {
@@ -96,6 +96,9 @@ func RemoveMember(c *gin.Context) {
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		ban := models.RoomBan{RoomID: room.RoomID, UserID: targetID, RemovedBy: caller.ID, RemovedAt: time.Now()}
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&ban).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("room_id = ? AND user_id = ?", room.RoomID, targetID).Delete(&models.WaitingRequest{}).Error; err != nil {
 			return err
 		}
 		return writePermissions(tx, room.RoomID, targetID, nil, caller.ID)

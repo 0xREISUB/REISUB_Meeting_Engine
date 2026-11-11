@@ -31,7 +31,7 @@ func ListRoomMessages(c *gin.Context) {
 		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
 		return
 	}
-	if !rejectBanned(c, roomID) {
+	if !mayUseChat(c, roomID) {
 		return
 	}
 
@@ -65,7 +65,7 @@ func SendRoomMessage(c *gin.Context) {
 		apierror.Respond(c, http.StatusNotFound, apierror.RoomNotFound, "Oda bulunamadı")
 		return
 	}
-	if !rejectBanned(c, roomID) {
+	if !mayUseChat(c, roomID) {
 		return
 	}
 
@@ -98,4 +98,30 @@ func formatChatMessage(message models.ChatMessage, userID uint) chatMessageRespo
 		CreatedAt: message.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z07:00"),
 		IsMine:    message.SenderID == userID,
 	}
+}
+
+// mayUseChat keeps removed users out of the chat, and, while the waiting
+// room is on, everyone who has not been let in. It writes the error
+// response itself.
+func mayUseChat(c *gin.Context, roomID string) bool {
+	if !rejectBanned(c, roomID) {
+		return false
+	}
+	var room models.Room
+	if err := database.DB.Where("room_id = ?", roomID).First(&room).Error; err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+		return false
+	}
+	if !room.WaitingRoom {
+		return true
+	}
+	direct, err := skipsWaitingRoom(roomID, c.MustGet("user").(models.User).ID)
+	if err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
+		return false
+	}
+	if !direct {
+		apierror.Respond(c, http.StatusForbidden, apierror.NotAdmitted, "Toplantıya henüz alınmadınız")
+	}
+	return direct
 }

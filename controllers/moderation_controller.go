@@ -59,9 +59,12 @@ func CloseRoom(c *gin.Context) {
 		return
 	}
 	forgetShareCheck(room.RoomID)
-	// Participants' permissions and bans end with the room.
+	// Participants' permissions, bans and waiting requests end with the room.
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("room_id = ? AND role = ?", room.RoomID, models.RoleParticipant).Delete(&models.RoomRole{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("room_id = ?", room.RoomID).Delete(&models.WaitingRequest{}).Error; err != nil {
 			return err
 		}
 		return tx.Where("room_id = ?", room.RoomID).Delete(&models.RoomBan{}).Error

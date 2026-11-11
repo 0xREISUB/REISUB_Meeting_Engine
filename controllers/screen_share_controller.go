@@ -168,10 +168,6 @@ func releaseStaleShare(ctx context.Context, svc liveKitRoomService, room *models
 	return saveShare(room, "", 0)
 }
 
-func meetingState(room models.Room) gin.H {
-	return gin.H{"screen_share_identity": room.ScreenShareIdentity}
-}
-
 // GetMeetingState is polled by every participant every 2 s. It only contacts
 // LiveKit when someone holds the screen-share slot and that holder has not
 // been confirmed within shareCheckInterval, and then asks about the holder
@@ -184,7 +180,7 @@ func GetMeetingState(c *gin.Context) {
 		return
 	}
 	if room.ScreenShareIdentity == "" || shareRecentlyVerified(room) {
-		c.JSON(http.StatusOK, meetingState(room))
+		respondState(c, room)
 		return
 	}
 	ctx, svc, err := connectLiveKit(c.Request.Context(), room.RoomID)
@@ -211,7 +207,7 @@ func GetMeetingState(c *gin.Context) {
 	if room.ScreenShareIdentity != "" {
 		markShareVerified(room)
 	}
-	c.JSON(http.StatusOK, meetingState(room))
+	respondState(c, room)
 }
 
 func StartScreenShare(c *gin.Context) {
@@ -286,7 +282,7 @@ func StartScreenShare(c *gin.Context) {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Paylaşım izni verilemedi. Tekrar deneyin.")
 		return
 	}
-	c.JSON(http.StatusOK, meetingState(room))
+	respondState(c, room)
 }
 
 func StopScreenShare(c *gin.Context) {
@@ -332,7 +328,7 @@ func StopScreenShare(c *gin.Context) {
 		}
 	}
 	if room.ScreenShareIdentity == "" {
-		c.JSON(http.StatusOK, meetingState(room))
+		respondState(c, room)
 		return
 	}
 	if input.Identity != room.ScreenShareIdentity {
@@ -355,5 +351,5 @@ func StopScreenShare(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Paylaşım durumu kaydedilemedi")
 		return
 	}
-	c.JSON(http.StatusOK, meetingState(room))
+	respondState(c, room)
 }
