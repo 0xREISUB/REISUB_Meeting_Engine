@@ -264,6 +264,11 @@ func makeRoomResponse(room models.Room, userID uint, participant string, a acces
 	}
 	grant.SetCanPublishSources(sources)
 	attrs := a.attributes()
+	// Everyone in the meeting sees the profile picture with no camera on.
+	// It travels in the signed token, so nobody can put on someone else's.
+	if avatar := userAvatarURL(userID); avatar != "" {
+		attrs[avatarAttribute] = avatar
+	}
 	attrs[microphoneLockAttribute] = "false"
 	if locked {
 		attrs[microphoneLockAttribute] = "true"
@@ -297,6 +302,20 @@ func makeRoomResponse(room models.Room, userID uint, participant string, a acces
 }
 
 func boolPtr(value bool) *bool { return &value }
+
+// avatarAttribute carries a participant's profile picture path, relative to
+// this server (e.g. /avatars/12-0123456789abcdef.jpg).
+const avatarAttribute = "meeting.avatar_url"
+
+// userAvatarURL is the user's profile picture path; empty without one, and
+// for guests.
+func userAvatarURL(userID uint) string {
+	var users []models.User
+	if err := database.DB.Select("id", "avatar_file").Where("id = ?", userID).Limit(1).Find(&users).Error; err != nil || len(users) == 0 {
+		return ""
+	}
+	return avatarURL(users[0].AvatarFile)
+}
 
 // rememberDisplayName stores the name the user chose for this room; the
 // latest create/join wins.

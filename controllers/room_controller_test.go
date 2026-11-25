@@ -4,6 +4,12 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"reisub-backend/database"
+	"reisub-backend/models"
+
+	"github.com/gin-gonic/gin"
+	"github.com/livekit/protocol/auth"
 )
 
 func TestNewRoomIDIsWellFormedAndUnpredictable(t *testing.T) {
@@ -48,5 +54,38 @@ func TestInviteURLFollowsPublicWebURL(t *testing.T) {
 		if !strings.Contains(w.Body.String(), field) {
 			t.Fatalf("join response lost %s: %s", field, w.Body.String())
 		}
+	}
+}
+
+// joinAttributes joins the test room as token and answers the attributes
+// its LiveKit token carries.
+func joinAttributes(t *testing.T, r *gin.Engine, token string) map[string]string {
+	t.Helper()
+	w := moderationRequest(r, "/rooms/join", token, `{"room_id":"123-456-789","name":"x"}`)
+	if w.Code != 200 {
+		t.Fatalf("join: %d %s", w.Code, w.Body.String())
+	}
+	var response roomResponse
+	_ = json.Unmarshal(w.Body.Bytes(), &response)
+	verifier, err := auth.ParseAPIToken(response.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, grant, err := verifier.Verify("test-secret-000000000000000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return grant.Attributes
+}
+
+func TestMeetingTokensCarryTheProfilePicture(t *testing.T) {
+	r, _ := moderationTestRouter(t)
+	database.DB.Model(&models.User{}).Where("id = 22").Update("avatar_file", "22-0123456789abcdef.jpg")
+	if got := joinAttributes(t, r, "guest-token")[avatarAttribute]; got != "/avatars/22-0123456789abcdef.jpg" {
+		t.Fatalf("with a picture: %q", got)
+	}
+	// Without one, no attribute: the app shows initials.
+	if _, ok := joinAttributes(t, r, "owner-token")[avatarAttribute]; ok {
+		t.Fatal("an attribute without a picture")
 	}
 }

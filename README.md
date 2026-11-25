@@ -488,6 +488,9 @@ with `GET /notifications?after=` and `GET /social`, since events sent while
 it was away are not kept. Behind Nginx Proxy Manager, the proxy host needs
 "Websockets Support" on.
 
+In meetings, a participant with a profile picture carries its path in the
+LiveKit attribute `meeting.avatar_url` (set in the signed join token, so it
+cannot be put on by anyone else); the apps show it while the camera is off.
 Profile pictures (`avatar_url`, empty without one) are served by `GET
 /avatars/:name` without authentication. Each upload gets a new random name,
 so they are cached for good. They are kept in `AVATAR_DIR`, by default an
