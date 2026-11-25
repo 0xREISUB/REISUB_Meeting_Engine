@@ -56,6 +56,9 @@ func RequireAuth() gin.HandlerFunc {
 			}
 		}
 		touchLastSeen(user, now)
+		if !user.IsGuest {
+			touchActive(user, now)
+		}
 
 		c.Set("user", user)
 		c.Next()
@@ -81,6 +84,32 @@ func RequireGuestsAllowed() gin.HandlerFunc {
 // lastSeenResolution limits LastSeenAt writes to one per user per hour, so
 // clients polling every two seconds do not write on every request.
 const lastSeenResolution = time.Hour
+
+// activeResolution is how often ActiveAt is written, well inside the
+// timeout after which friends see a user as offline.
+const activeResolution = 20 * time.Second
+
+// touchActive records that the user is around, for their friends.
+func touchActive(user models.User, now time.Time) {
+	if user.ActiveAt != nil && now.Sub(*user.ActiveAt) < activeResolution {
+		return
+	}
+	if err := database.DB.Model(&models.User{}).Where("id = ?", user.ID).UpdateColumn("active_at", now).Error; err != nil {
+		log.Printf("warning: could not record activity for user %d: %v", user.ID, err)
+	}
+}
+
+// RequireAccount keeps guests out: friends, teams and profiles belong to
+// accounts. It runs after RequireAuth.
+func RequireAccount() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.MustGet("user").(models.User).IsGuest {
+			apierror.Abort(c, http.StatusForbidden, apierror.AccountRequired, "Bu özellik için giriş yapmalısınız")
+			return
+		}
+		c.Next()
+	}
+}
 
 func touchLastSeen(user models.User, now time.Time) {
 	if user.LastSeenAt != nil && now.Sub(*user.LastSeenAt) < lastSeenResolution {

@@ -36,6 +36,7 @@ func LiveKitWebhook(c *gin.Context) {
 		return
 	}
 	if event.Event == webhook.EventParticipantJoined {
+		markInMeeting(event.GetRoom().GetName(), event.GetParticipant().GetIdentity())
 		removeIfBanned(c, event.GetRoom().GetName(), event.GetParticipant().GetIdentity())
 		return
 	}
@@ -69,6 +70,7 @@ func LiveKitWebhook(c *gin.Context) {
 	// LiveKit may still list the departing session briefly.
 	left := event.GetParticipant().GetIdentity()
 	gone := func(p *livekit.ParticipantInfo) bool { return left != "" && p.Identity == left }
+	recordMeetingPresence(room.RoomID, ps, gone)
 	if err := runSuccession(ctx, svc, &room, ps, gone); err != nil {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Yeni oda sahibi belirlenemedi")
 		return

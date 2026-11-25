@@ -110,6 +110,24 @@ const (
 )
 
 // Body is the JSON shape of every error response.
+// Social features: profiles, friends, teams and their chats.
+const (
+	// AccountRequired: guests cannot use the social features.
+	AccountRequired Code = "account_required"
+	InvalidProfile  Code = "invalid_profile"
+	CannotAddSelf   Code = "cannot_add_self"
+	AlreadyFriends  Code = "already_friends"
+	RequestPending  Code = "request_pending"
+	// FriendRequestNotFound: no pending request with that id for this user.
+	FriendRequestNotFound Code = "friend_request_not_found"
+	NotFriends            Code = "not_friends"
+	InvalidTeam           Code = "invalid_team"
+	TeamNotFound          Code = "team_not_found"
+	TeamRoleRequired      Code = "team_role_required"
+	AlreadyTeamMember     Code = "already_team_member"
+	TeamFull              Code = "team_full"
+)
+
 type Body struct {
 	Error string `json:"error"`
 	Code  Code   `json:"code"`

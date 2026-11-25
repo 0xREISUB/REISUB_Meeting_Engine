@@ -79,4 +79,30 @@ func SetupRoutes(r *gin.Engine) {
 		roomRoutes.GET("/:room_id/messages", controllers.ListRoomMessages)
 		roomRoutes.POST("/:room_id/messages", controllers.SendRoomMessage)
 	}
+
+	// Profiles, friends, teams and their chats belong to accounts; guests
+	// are turned away.
+	social := r.Group("", middleware.RequireAuth(), middleware.RequireAccount())
+	{
+		social.GET("/me", controllers.GetProfile)
+		social.PATCH("/me", controllers.UpdateProfile)
+		social.GET("/social", controllers.GetSocialOverview)
+
+		social.POST("/friends/requests", controllers.SendFriendRequest)
+		social.POST("/friends/requests/:request_id/accept", controllers.AcceptFriendRequest)
+		social.POST("/friends/requests/:request_id/decline", controllers.DeclineFriendRequest)
+		social.DELETE("/friends/:user_id", controllers.RemoveFriend)
+
+		social.POST("/teams", controllers.CreateTeam)
+		social.GET("/teams/:team_id", controllers.GetTeam)
+		social.DELETE("/teams/:team_id", controllers.DeleteTeam)
+		social.POST("/teams/:team_id/members", controllers.AddTeamMember)
+		social.DELETE("/teams/:team_id/members/:user_id", controllers.RemoveTeamMember)
+		social.PUT("/teams/:team_id/members/:user_id/role", controllers.SetTeamMemberRole)
+		social.POST("/teams/:team_id/meeting", controllers.StartTeamMeeting)
+
+		social.GET("/chats/:kind/:id/messages", controllers.ListConversationMessages)
+		social.POST("/chats/:kind/:id/messages", controllers.SendConversationMessage)
+		social.POST("/chats/friend/:id/call", controllers.CallFriend)
+	}
 }

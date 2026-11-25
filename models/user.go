@@ -20,4 +20,32 @@ type User struct {
 	// drives the cleanup of inactive guests.
 	LastSeenAt *time.Time
 	CreatedAt  time.Time
+
+	// DisplayName is how the user shows to friends and teams; empty means
+	// the nick.
+	DisplayName string `gorm:"not null;default:''"`
+	// StatusMessage is a short line shown under the name.
+	StatusMessage string `gorm:"not null;default:''"`
+	// Presence is what the user chose to show: PresenceOnline, PresenceBusy
+	// or PresenceInvisible. Whether they are actually around comes from
+	// ActiveAt.
+	Presence string `gorm:"not null;default:'online'"`
+	// ActiveAt is refreshed every few seconds by authenticated requests;
+	// friends see a user as offline once it is older than a short timeout.
+	ActiveAt *time.Time
+}
+
+// Presence a user can choose.
+const (
+	PresenceOnline    = "online"
+	PresenceBusy      = "busy"
+	PresenceInvisible = "invisible"
+)
+
+// Name is how the user shows to others: the display name, or the nick.
+func (u User) Name() string {
+	if u.DisplayName != "" {
+		return u.DisplayName
+	}
+	return u.Nick
 }

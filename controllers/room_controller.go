@@ -60,22 +60,37 @@ func CreateRoom(c *gin.Context) {
 	}
 
 	user := c.MustGet("user").(models.User)
-	if !rejectCooldown(c, user.ID) {
+	room, ok := openRoom(c, user, input.Name)
+	if !ok {
 		return
+	}
+	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), ownerAccess())
+	if err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
+		return
+	}
+	c.JSON(http.StatusCreated, response)
+}
+
+// openRoom creates a room owned by user, who will show in it as name, and
+// prepares its media session. It writes the error response itself.
+func openRoom(c *gin.Context, user models.User, name string) (models.Room, bool) {
+	if !rejectCooldown(c, user.ID) {
+		return models.Room{}, false
 	}
 	if os.Getenv("LIVEKIT_API_KEY") == "" || os.Getenv("LIVEKIT_API_SECRET") == "" {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.MediaServerNotConfigured, "LiveKit yapılandırması eksik")
-		return
+		return models.Room{}, false
 	}
 	roomID, err := newRoomID()
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
-		return
+		return models.Room{}, false
 	}
 	now := time.Now()
 	room := models.Room{
 		RoomID:     roomID,
-		Name:       strings.TrimSpace(input.Name),
+		Name:       strings.TrimSpace(name),
 		OwnerID:    user.ID,
 		Status:     models.RoomStatusCreating,
 		LastUsedAt: &now,
@@ -92,38 +107,33 @@ func CreateRoom(c *gin.Context) {
 	})
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
-		return
+		return models.Room{}, false
 	}
 
 	ctx, service, err := connectLiveKit(c.Request.Context(), room.RoomID)
 	if err != nil {
 		database.DB.Delete(&room)
 		apierror.Respond(c, http.StatusServiceUnavailable, apierror.MediaServerNotConfigured, "Toplantı sunucusu yapılandırılmamış")
-		return
+		return models.Room{}, false
 	}
 	if _, err = service.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: room.RoomID}); err != nil {
 		database.DB.Delete(&room)
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Toplantı sunucusunda oda oluşturulamadı")
-		return
+		return models.Room{}, false
 	}
 	if err = database.DB.Model(&room).Update("status", models.RoomStatusActive).Error; err != nil {
 		service.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: room.RoomID})
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda etkinleştirilemedi")
-		return
+		return models.Room{}, false
 	}
 	if room.EndsAt != nil {
 		scheduleRoomEnd(room.RoomID, *room.EndsAt)
 	}
-	if err = rememberDisplayName(room.RoomID, user.ID, input.Name); err != nil {
+	if err = rememberDisplayName(room.RoomID, user.ID, name); err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda oluşturulamadı")
-		return
+		return models.Room{}, false
 	}
-	response, err := makeRoomResponse(room, user.ID, strings.TrimSpace(input.Name), ownerAccess())
-	if err != nil {
-		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, err.Error())
-		return
-	}
-	c.JSON(http.StatusCreated, response)
+	return room, true
 }
 
 func JoinRoom(c *gin.Context) {

@@ -69,11 +69,15 @@ func Migrate(db *gorm.DB) error {
 			if err := convertRolesToPermissions(tx); err != nil {
 				return err
 			}
-			return tx.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomMember{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}, &models.RoomBan{}, &models.WaitingRequest{}, &models.MeetingCooldown{})
+			return tx.AutoMigrate(append([]any{&models.User{}, &models.Room{}, &models.RoomMember{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}, &models.RoomBan{}, &models.WaitingRequest{}, &models.MeetingCooldown{}}, socialModels...)...)
 		})
 	}
-	return db.AutoMigrate(&models.User{}, &models.Room{}, &models.RoomRole{}, &models.RoomMember{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}, &models.RoomBan{}, &models.WaitingRequest{}, &models.MeetingCooldown{})
+	return db.AutoMigrate(append([]any{&models.User{}, &models.Room{}, &models.RoomRole{}, &models.RoomMember{}, &models.ChatMessage{}, &models.RoomMicrophoneLock{}, &models.RoomBan{}, &models.WaitingRequest{}, &models.MeetingCooldown{}}, socialModels...)...)
 }
+
+// socialModels are the tables behind profiles, friends, teams and their
+// chats.
+var socialModels = []any{&models.Friendship{}, &models.Team{}, &models.TeamMember{}, &models.SocialMessage{}, &models.MeetingPresence{}}
 
 // legacyModerator is the removed "moderator" role. Moderators could do what
 // these permissions allow (admit_members because they could already manage

@@ -388,6 +388,45 @@ startup the backend logs a warning if any stored nick still has surrounding
 whitespace (such accounts cannot log in with trimmed input and need a manual
 migration).
 
+## Social: profiles, friends and teams
+
+Accounts (not guests: `account_required`, 403) have a profile, friends and
+teams, each with a chat. Everything below needs the session token.
+
+| Route | Does |
+| --- | --- |
+| `GET /me` | The user's own profile: `id`, `nick`, `display_name` (the nick when unset), `status_message`, `presence` (`online`, `busy` or `invisible`, as chosen) |
+| `PATCH /me` | Changes any of `display_name` (≤ 40, empty goes back to the nick), `status_message` (≤ 80), `presence`; answers the profile |
+| `GET /social` | Everything the social tab shows: `profile`, `friends`, `requests` (incoming), `outgoing`, `teams` |
+| `POST /friends/requests` | `{"nick"}` asks someone to be friends (201 `pending`); if they had asked first, both become friends (200 `accepted`) |
+| `POST /friends/requests/:id/accept` · `/decline` | Answers a request sent to the user |
+| `DELETE /friends/:user_id` | Ends a friendship, or takes back a request the user sent |
+| `POST /teams` | `{"name", "color"?}` (name ≤ 40, colour `#RRGGBB`, one is picked when left out); the creator is its `owner` |
+| `GET /teams/:team_id` | The team with its `members` (`user`, `role`); non-members get `team_not_found` |
+| `POST /teams/:team_id/members` | `{"user_id"}`: owners and admins add one of their own friends (at most 50 members) |
+| `DELETE /teams/:team_id/members/:user_id` | Leaves the team, or removes someone: admins remove members, the owner anyone. An owner who leaves hands the team to the longest-serving admin, else member; the last one out deletes it |
+| `PUT /teams/:team_id/members/:user_id/role` | `{"role": "admin" \| "member"}`; owner only |
+| `DELETE /teams/:team_id` | Deletes the team and its chat; owner only |
+| `POST /teams/:team_id/meeting` | Answers `{"room_id", "started"}`: the team's room while it can be joined, otherwise a new one. When nobody is in it yet, an invitation goes to the team chat (once per two minutes). Join it with `POST /rooms/join` |
+| `GET /chats/:kind/:id/messages` | `kind` is `friend` (a user id) or `team`; the latest 100 messages, oldest first, or with `?after=<message id>` only newer ones |
+| `POST /chats/:kind/:id/messages` | `{"content"}` (1–2000 characters) |
+| `POST /chats/friend/:id/call` | Opens a meeting room and leaves an invitation to it in the chat; answers `{"room_id"}` |
+
+A person in these answers (`friends[]`, `requests[].user`, team `members[].user`)
+is `id`, `nick`, `display_name`, `status_message` and `presence` as friends see
+it: `in_meeting` while connected to an active room's media session (from the
+LiveKit webhook), `busy` or `online` while they made a request in the last 45
+seconds (authenticated requests refresh this every 20 seconds), else
+`offline`, with `last_seen_seconds`. Users who chose `invisible` always show
+`offline`, with no last seen. Clients refresh `GET /social` every few seconds
+while it is open, which also keeps the user online.
+
+A team in `teams[]` has `id`, `name`, `color`, the user's `role`,
+`member_count`, `online_count` and `meeting_live`, with its `room_id` while
+someone is in its meeting. A message has `id`, `sender_id`, `sender` (display
+name), `content`, `created_at`, `is_mine`, and `room_id` when it invites to a
+meeting (its `content` is then empty).
+
 ## Server policy
 
 `GET /policy` (no authentication, CORS like `/ping`) publishes the server's
@@ -513,7 +552,19 @@ the session token is missing or expired.
 | `media_server_error` | A LiveKit call failed; retry |
 | `screen_share_busy` | Another session holds the screen-share slot |
 | `publish_not_permitted` | Session may not publish media |
-| `invalid_message` | Chat message empty or over 1000 characters |
+| `invalid_message` | Chat message empty or too long (1000 characters in rooms, 2000 between friends and in teams) |
+| `account_required` | Guests cannot use profiles, friends or teams (403) |
+| `invalid_profile` | Display name, status message or presence not allowed |
+| `cannot_add_self` | A friend request to oneself |
+| `already_friends` | Already friends (409) |
+| `request_pending` | A friend request to them is already waiting (409) |
+| `friend_request_not_found` | No pending request with that id sent to the user (404) |
+| `not_friends` | Not friends: no chat, call or adding to a team |
+| `invalid_team` | Team name empty or over 40 characters, or colour not `#RRGGBB` |
+| `team_not_found` | Team unknown, or the user is not in it (404) |
+| `team_role_required` | Only the team's owner or admins may do this (403) |
+| `already_team_member` | That person is already in the team (409) |
+| `team_full` | The team has 50 members (409) |
 
 ## Development
 
