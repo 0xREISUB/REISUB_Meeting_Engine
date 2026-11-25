@@ -45,6 +45,13 @@ func LiveKitWebhook(c *gin.Context) {
 		return
 	}
 	roomID := event.GetRoom().GetName()
+	// Friends hear at once that they are out of the meeting, whatever the
+	// room's state; a closed room has nothing else to do below.
+	if event.Event == webhook.EventRoomFinished {
+		clearMeetingPresence(roomID)
+	} else {
+		leftMeeting(roomID, event.GetParticipant().GetIdentity())
+	}
 	release := lockRoomLifecycle(roomID)
 	defer release()
 	var room models.Room

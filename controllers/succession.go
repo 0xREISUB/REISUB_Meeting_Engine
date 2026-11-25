@@ -257,6 +257,8 @@ func LeaveRoom(c *gin.Context) {
 		id, err := participantUserID(p.Identity)
 		return err == nil && id == caller.ID
 	}
+	// Out of the meeting for friends now, not when LiveKit reports it.
+	forgetInMeeting(room.RoomID, caller.ID)
 	if err := runSuccession(ctx, svc, &room, ps, leaving); err != nil {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Yeni oda sahibi belirlenemedi. Tekrar deneyin.")
 		return
