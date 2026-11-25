@@ -80,6 +80,10 @@ func SetupRoutes(r *gin.Engine) {
 		roomRoutes.POST("/:room_id/messages", controllers.SendRoomMessage)
 	}
 
+	// The app's realtime connection; it says who it is in its first
+	// message, not in the URL.
+	r.GET("/ws", controllers.RealtimeSocket)
+
 	// Profile pictures; public, under names nobody can guess.
 	r.GET("/avatars/:name", controllers.ServeAvatar)
 	r.HEAD("/avatars/:name", controllers.ServeAvatar)

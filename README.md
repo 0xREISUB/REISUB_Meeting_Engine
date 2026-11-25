@@ -425,6 +425,29 @@ seconds (authenticated requests refresh this every 20 seconds), else
 `offline`, with no last seen. Clients refresh `GET /social` every few seconds
 while it is open, which also keeps the user online.
 
+### Realtime connection
+
+`GET /ws` upgrades to a WebSocket. The app's first message says who it is,
+`{"type":"auth","token":"<session token>"}` (in a message rather than the
+URL, so no log holds it); the server answers `{"type":"ready"}`. A missing
+or wrong first message closes it with 4400, an unknown token with 4401, a
+guest with 4403. Then the server sends, as things happen:
+
+- `{"type":"message","message":{...}}`: a new message in one of the user's
+  chats, as in `GET /notifications` (also the user's own, to their other
+  devices).
+- `{"type":"social"}`: something in the user's `GET /social` changed (a
+  friend request, a team, someone coming online, going away or into a
+  meeting, a read chat); read it again.
+
+The app sends nothing more. The server pings every 25 seconds, so proxies
+keep it open; a device too slow to take its events is closed with 1013 and
+should reconnect. A user with a device connected is online to friends, and
+their going away is their last seen. After connecting, an app catches up
+with `GET /notifications?after=` and `GET /social`, since events sent while
+it was away are not kept. Behind Nginx Proxy Manager, the proxy host needs
+"Websockets Support" on.
+
 Profile pictures (`avatar_url`, empty without one) are served by `GET
 /avatars/:name` without authentication. Each upload gets a new random name,
 so they are cached for good. They are kept in `AVATAR_DIR`, by default an

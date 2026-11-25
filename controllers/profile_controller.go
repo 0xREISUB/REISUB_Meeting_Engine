@@ -96,6 +96,9 @@ func UpdateProfile(c *gin.Context) {
 			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Profil kaydedilemedi")
 			return
 		}
+		// Friends and teams see the new name or status; so do the user's
+		// other devices.
+		socialChanged(append(contactsOf(user.ID), user.ID)...)
 	}
 	c.JSON(http.StatusOK, makeProfile(user))
 }

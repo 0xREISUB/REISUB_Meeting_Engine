@@ -46,7 +46,14 @@ func visiblePresence(user models.User, inMeeting bool, now time.Time) string {
 	if inMeeting {
 		return presenceInMeeting
 	}
-	if user.ActiveAt == nil || now.Sub(*user.ActiveAt) > presenceTimeout {
+	// Around: connected right now, or asked something lately (apps that
+	// keep no realtime connection).
+	recent := user.ActiveAt != nil && now.Sub(*user.ActiveAt) <= presenceTimeout
+	// Their realtime connection went away, and they asked nothing since.
+	if left, ok := hub.leftAt(user.ID); ok && user.ActiveAt != nil && !user.ActiveAt.After(left.Add(time.Second)) {
+		recent = false
+	}
+	if !hub.online(user.ID) && !recent {
 		return presenceOffline
 	}
 	if user.Presence == models.PresenceBusy {

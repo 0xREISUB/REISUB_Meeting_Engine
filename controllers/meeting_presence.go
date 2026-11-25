@@ -20,8 +20,14 @@ func markInMeeting(roomID, identity string) {
 		return
 	}
 	row := models.MeetingPresence{RoomID: roomID, UserID: userID}
-	if err := database.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
-		log.Printf("warning: could not record user %d in room %s: %v", userID, roomID, err)
+	result := database.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
+	if result.Error != nil {
+		log.Printf("warning: could not record user %d in room %s: %v", userID, roomID, result.Error)
+		return
+	}
+	if result.RowsAffected > 0 {
+		// Friends see them in a meeting; the room's team sees it going on.
+		socialChanged(append(contactsOf(userID), roomTeamMembers(roomID)...)...)
 	}
 }
 
@@ -37,6 +43,10 @@ func recordMeetingPresence(roomID string, ps []*livekit.ParticipantInfo, gone fu
 			present[id] = true
 		}
 	}
+	var before []uint
+	if err := database.DB.Model(&models.MeetingPresence{}).Where("room_id = ?", roomID).Pluck("user_id", &before).Error; err != nil {
+		log.Printf("warning: could not read who is in room %s: %v", roomID, err)
+	}
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("room_id = ?", roomID).Delete(&models.MeetingPresence{}).Error; err != nil {
 			return err
@@ -50,7 +60,27 @@ func recordMeetingPresence(roomID string, ps []*livekit.ParticipantInfo, gone fu
 	})
 	if err != nil {
 		log.Printf("warning: could not record who is in room %s: %v", roomID, err)
+		return
 	}
+	// Whoever came or went: their friends, and the room's team.
+	var changed []uint
+	for _, id := range before {
+		if !present[id] {
+			changed = append(changed, id)
+		}
+		delete(present, id)
+	}
+	for id := range present {
+		changed = append(changed, id)
+	}
+	if len(changed) == 0 {
+		return
+	}
+	audience := roomTeamMembers(roomID)
+	for _, id := range changed {
+		audience = append(audience, contactsOf(id)...)
+	}
+	socialChanged(audience...)
 }
 
 // roomsInUse reports which of the given rooms are active with someone

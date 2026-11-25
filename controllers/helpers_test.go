@@ -25,6 +25,9 @@ func useTestDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	database.DB = db
+	// Nobody connected, nobody just left: each test starts afresh.
+	hub = newRealtimeHub()
+	hub.onPresence = presenceChanged
 	t.Cleanup(func() {
 		database.DB = previous
 		if sqlDB, err := db.DB(); err == nil {

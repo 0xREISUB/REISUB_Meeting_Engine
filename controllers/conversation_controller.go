@@ -121,6 +121,7 @@ func SendConversationMessage(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Mesaj gönderilemedi")
 		return
 	}
+	publishMessage(message)
 	response, err := formatSocialMessages([]models.SocialMessage{message}, user.ID)
 	if err != nil || len(response) == 0 {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Mesaj okunamadı")

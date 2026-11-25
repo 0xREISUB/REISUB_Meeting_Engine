@@ -52,6 +52,7 @@ func SendFriendRequest(c *gin.Context) {
 			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "İstek gönderilemedi")
 			return
 		}
+		socialChanged(user.ID, target.ID)
 		c.JSON(http.StatusCreated, gin.H{"status": models.FriendshipPending})
 	case existing.Status == models.FriendshipAccepted:
 		apierror.Respond(c, http.StatusConflict, apierror.AlreadyFriends, "Zaten arkadaşsınız")
@@ -63,6 +64,7 @@ func SendFriendRequest(c *gin.Context) {
 			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "İstek kabul edilemedi")
 			return
 		}
+		socialChanged(user.ID, target.ID)
 		c.JSON(http.StatusOK, gin.H{"status": models.FriendshipAccepted})
 	}
 }
@@ -102,6 +104,7 @@ func AcceptFriendRequest(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "İstek kabul edilemedi")
 		return
 	}
+	socialChanged(row.UserID, row.FriendID)
 	c.JSON(http.StatusOK, gin.H{"status": models.FriendshipAccepted})
 }
 
@@ -115,6 +118,7 @@ func DeclineFriendRequest(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "İstek reddedilemedi")
 		return
 	}
+	socialChanged(row.UserID, row.FriendID)
 	c.Status(http.StatusNoContent)
 }
 
@@ -140,5 +144,6 @@ func RemoveFriend(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Arkadaşlık silinemedi")
 		return
 	}
+	socialChanged(row.UserID, row.FriendID)
 	c.Status(http.StatusNoContent)
 }

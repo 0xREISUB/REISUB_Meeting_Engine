@@ -155,6 +155,7 @@ func UploadAvatar(c *gin.Context) {
 	}
 	removeAvatarFile(user.AvatarFile)
 	user.AvatarFile = name
+	socialChanged(append(contactsOf(user.ID), user.ID)...)
 	c.JSON(http.StatusOK, makeProfile(user))
 }
 
@@ -167,6 +168,7 @@ func DeleteAvatar(c *gin.Context) {
 	}
 	removeAvatarFile(user.AvatarFile)
 	user.AvatarFile = ""
+	socialChanged(append(contactsOf(user.ID), user.ID)...)
 	c.JSON(http.StatusOK, makeProfile(user))
 }
 

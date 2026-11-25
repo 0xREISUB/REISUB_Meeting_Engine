@@ -198,5 +198,7 @@ func MarkConversationRead(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Okundu bilgisi kaydedilemedi")
 		return
 	}
+	// The user's other devices take the unread badge down too.
+	socialChanged(user.ID)
 	c.Status(http.StatusNoContent)
 }

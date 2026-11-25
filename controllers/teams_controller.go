@@ -183,6 +183,7 @@ func CreateTeam(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Takım okunamadı")
 		return
 	}
+	socialChanged(user.ID)
 	c.JSON(http.StatusCreated, summaries[0])
 }
 
@@ -310,6 +311,7 @@ func AddTeamMember(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Üye eklenemedi")
 		return
 	}
+	socialChanged(teamMemberIDs(team.ID)...)
 	c.Status(http.StatusNoContent)
 }
 
@@ -337,6 +339,7 @@ func RemoveTeamMember(c *gin.Context) {
 		apierror.Respond(c, http.StatusNotFound, apierror.UserNotFound, "Kullanıcı takımda değil")
 		return
 	}
+	before := teamMemberIDs(team.ID)
 	leaving := target.UserID == user.ID
 	allowed := leaving ||
 		membership.Role == models.TeamRoleOwner ||
@@ -369,6 +372,7 @@ func RemoveTeamMember(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Üye çıkarılamadı")
 		return
 	}
+	socialChanged(before...)
 	c.Status(http.StatusNoContent)
 }
 
@@ -407,6 +411,7 @@ func SetTeamMemberRole(c *gin.Context) {
 		apierror.Respond(c, http.StatusNotFound, apierror.UserNotFound, "Kullanıcı takımda değil")
 		return
 	}
+	socialChanged(teamMemberIDs(team.ID)...)
 	c.Status(http.StatusNoContent)
 }
 
@@ -422,10 +427,12 @@ func DeleteTeam(c *gin.Context) {
 		apierror.Respond(c, http.StatusForbidden, apierror.TeamRoleRequired, "Bu işlem için takım sahibi olmalısınız")
 		return
 	}
+	members := teamMemberIDs(team.ID)
 	if err := database.DB.Transaction(func(tx *gorm.DB) error { return deleteTeamTx(tx, team.ID) }); err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Takım silinemedi")
 		return
 	}
+	socialChanged(members...)
 	c.Status(http.StatusNoContent)
 }
 
@@ -525,5 +532,10 @@ func inviteToMeeting(conversation string, senderID uint, roomID string) error {
 	if recent > 0 {
 		return nil
 	}
-	return database.DB.Create(&models.SocialMessage{Conversation: conversation, SenderID: senderID, RoomID: roomID}).Error
+	invite := models.SocialMessage{Conversation: conversation, SenderID: senderID, RoomID: roomID}
+	if err := database.DB.Create(&invite).Error; err != nil {
+		return err
+	}
+	publishMessage(invite)
+	return nil
 }

@@ -26,6 +26,29 @@ func BearerToken(c *gin.Context) string {
 
 // RequireAuth rejects requests without a valid session token (HTTP 401,
 // which clients treat as "session expired") and stores the user under "user".
+// UserForToken finds the user whose session token this is, as RequireAuth
+// does, and records their activity. False when the token is unknown or
+// expired.
+func UserForToken(token string) (models.User, bool) {
+	if token == "" {
+		return models.User{}, false
+	}
+	var users []models.User
+	if err := database.DB.Where("token = ?", token).Limit(1).Find(&users).Error; err != nil || len(users) == 0 {
+		return models.User{}, false
+	}
+	user := users[0]
+	now := time.Now()
+	if user.TokenExpiresAt != nil && !now.Before(*user.TokenExpiresAt) {
+		return models.User{}, false
+	}
+	touchLastSeen(user, now)
+	if !user.IsGuest {
+		touchActive(user, now)
+	}
+	return user, true
+}
+
 func RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := BearerToken(c)
@@ -35,29 +58,16 @@ func RequireAuth() gin.HandlerFunc {
 			return
 		}
 
-		var users []models.User
-		if err := database.DB.Where("token = ?", token).Limit(1).Find(&users).Error; err != nil || len(users) == 0 {
+		user, ok := UserForToken(token)
+		if !ok {
 			apierror.Abort(c, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
 			return
 		}
-		user := users[0]
-		now := time.Now()
-		// Guest tokens expire; the client then creates a new guest session.
-		if user.TokenExpiresAt != nil && !now.Before(*user.TokenExpiresAt) {
-			apierror.Abort(c, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
-			return
-		}
-		// Guests already in a meeting stay connected to it; only their API
-		// calls are refused, and the client then asks them to log in.
 		if user.IsGuest {
 			if allowed, _ := policy.GuestsAllowed(); !allowed {
 				respondGuestsNotAllowed(c)
 				return
 			}
-		}
-		touchLastSeen(user, now)
-		if !user.IsGuest {
-			touchActive(user, now)
 		}
 
 		c.Set("user", user)
