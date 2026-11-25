@@ -19,6 +19,11 @@ services:
     environment:
       GIN_MODE: release
       PORT: ${PORT:-8080}
+      # PostgreSQL on this stack's own network. POSTGRES_PASSWORD must be
+      # URL-safe (letters and digits).
+      DATABASE_URL: postgres://reisub:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in config/stack.env}@postgres:5432/reisub?sslmode=disable
+      # The data volume keeps profile pictures (DB_PATH's directory), and the
+      # old SQLite database for sqlite-to-postgres.
       DB_PATH: /data/reisub.db
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}
@@ -67,7 +72,10 @@ services:
         aliases:
           - reisub-meeting-backend
     depends_on:
-      - livekit
+      livekit:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -80,6 +88,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: reisub
+      POSTGRES_DB: reisub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in config/stack.env}
+    # No published port: only the backend reaches it, on the default network.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reisub -d reisub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   livekit:
     image: livekit/livekit-server:v1.13.7
@@ -125,6 +150,8 @@ volumes:
   backend_data:
     name: reisub-meeting-db
     external: true
+  postgres_data:
+    name: reisub-meeting-pg
 networks:
   proxy-agi:
     external: true

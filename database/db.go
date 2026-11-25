@@ -4,30 +4,39 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"reisub-backend/models"
 
 	"github.com/glebarez/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 var DB *gorm.DB
 
+// ConnectDB opens the database: PostgreSQL when DATABASE_URL is set (as in
+// production), otherwise the SQLite file at DB_PATH (default reisub.db),
+// for development and small servers.
 func ConnectDB() {
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "reisub.db"
-	}
-	if dir := filepath.Dir(dbPath); dir != "." {
-		if err := os.MkdirAll(dir, 0750); err != nil {
-			log.Fatal("Veritabanı dizini oluşturulamadı: " + err.Error())
-		}
-	}
-
 	var err error
-	DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	DB, err = gorm.Open(dialectorFromEnv(), &gorm.Config{
+		// Duplicate keys and the like come back the same from either
+		// database (gorm.ErrDuplicatedKey).
+		TranslateError: true,
+	})
 	if err != nil {
 		log.Fatal("Veritabanına bağlanılamadı: " + err.Error())
+	}
+	if DB.Dialector.Name() == "postgres" {
+		sqlDB, err := DB.DB()
+		if err != nil {
+			log.Fatal("Veritabanına bağlanılamadı: " + err.Error())
+		}
+		sqlDB.SetMaxOpenConns(envInt("DATABASE_MAX_CONNECTIONS", 25))
+		sqlDB.SetMaxIdleConns(5)
+		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	}
 
 	if err := Migrate(DB); err != nil {
@@ -211,13 +220,48 @@ func tail(rows []models.RoomRole) []models.RoomRole {
 	return rows[1:]
 }
 
+// trimWhitespace is SQL for column without leading or trailing ASCII
+// whitespace, in the database's own dialect.
+func trimWhitespace(db *gorm.DB, column string) string {
+	if db.Dialector.Name() == "postgres" {
+		return "btrim(" + column + `, E' \t\n\v\f\r')`
+	}
+	return "trim(" + column + ", ' ' || char(9) || char(10) || char(11) || char(12) || char(13))"
+}
+
 // CountUntrimmedNicks counts users whose stored nick has leading or trailing
 // ASCII whitespace. Login and registration trim nicks, so such accounts can
 // no longer be reached. It only reports; it never modifies data.
 func CountUntrimmedNicks(db *gorm.DB) (int64, error) {
 	var count int64
 	err := db.Model(&models.User{}).
-		Where("nick <> trim(nick, ' ' || char(9) || char(10) || char(11) || char(12) || char(13))").
+		Where("nick <> " + trimWhitespace(db, "nick")).
 		Count(&count).Error
 	return count, err
+}
+
+// dialectorFromEnv picks the database: DATABASE_URL (PostgreSQL, e.g.
+// postgres://user:pass@host:5432/db?sslmode=disable) or the SQLite file at
+// DB_PATH.
+func dialectorFromEnv() gorm.Dialector {
+	if url := os.Getenv("DATABASE_URL"); url != "" {
+		return postgres.Open(url)
+	}
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "reisub.db"
+	}
+	if dir := filepath.Dir(dbPath); dir != "." {
+		if err := os.MkdirAll(dir, 0750); err != nil {
+			log.Fatal("Veritabanı dizini oluşturulamadı: " + err.Error())
+		}
+	}
+	return sqlite.Open(dbPath)
+}
+
+func envInt(name string, fallback int) int {
+	if value, err := strconv.Atoi(os.Getenv(name)); err == nil && value > 0 {
+		return value
+	}
+	return fallback
 }

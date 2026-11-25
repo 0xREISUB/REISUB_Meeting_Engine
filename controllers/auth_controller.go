@@ -3,6 +3,7 @@ package controllers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 // bcrypt only accepts passwords up to 72 bytes.
@@ -64,7 +66,7 @@ func Register(c *gin.Context) {
 	user := models.User{Nick: input.Nick, Password: string(hashedPassword)}
 
 	if err := database.DB.Create(&user).Error; err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			apierror.Respond(c, http.StatusBadRequest, apierror.NickTaken, "Bu nick kullanımda")
 		} else {
 			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Kayıt tamamlanamadı")

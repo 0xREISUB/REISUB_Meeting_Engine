@@ -104,7 +104,8 @@ func TestJoiningAndPollingMarkTheRoomUsed(t *testing.T) {
 	recent := ago(10 * time.Minute)
 	setRoomTimes(t, recent, time.Now().Add(-48*time.Hour))
 	stateRequest(r, "guest-token")
-	if used := loadTestRoom(t).LastUsedAt; !used.Equal(*recent) {
+	// Within a millisecond: PostgreSQL keeps microseconds, not nanoseconds.
+	if used := loadTestRoom(t).LastUsedAt; used.Sub(*recent).Abs() > time.Millisecond {
 		t.Fatal("poll wrote again within the hour")
 	}
 	setRoomTimes(t, ago(2*time.Hour), time.Now().Add(-48*time.Hour))

@@ -46,6 +46,39 @@ responses with `HSTS_MAX_AGE` seconds (Compose default 300, no
 hard-codes two years plus `preload`. To reach the API from the host itself,
 use `docker compose exec backend wget -qO- http://127.0.0.1:8080/ping`. LiveKit keeps the existing API/WebSocket and WebRTC media port mappings.
 
+### Database: PostgreSQL
+
+In Docker the backend keeps its data in PostgreSQL 17 (the `postgres`
+service, volume `reisub-meeting-pg`, reachable only from the backend). Set
+`POSTGRES_PASSWORD` in `config/stack.env`, letters and digits only, as it goes
+into the connection URL (`openssl rand -hex 24`). Outside Docker the backend
+uses PostgreSQL when `DATABASE_URL` is set
+(`postgres://user:pass@host:5432/db?sslmode=disable`;
+`DATABASE_MAX_CONNECTIONS`, default 25, caps its pool) and otherwise the SQLite
+file at `DB_PATH`, which is fine for development and small servers. Profile
+pictures stay in the directory of `DB_PATH` (the `/data` volume) either way.
+
+Moving a server that ran on SQLite, once, from this directory:
+
+```sh
+# 1. Back up the SQLite database and stop the backend.
+docker run --rm -v reisub-meeting-db:/data:ro -v /root/backups:/b alpine:3.22 \
+	cp /data/reisub.db /b/reisub-before-postgres-$(date -u +%Y%m%dT%H%M%SZ).db
+docker compose --env-file config/stack.env stop backend
+# 2. Start PostgreSQL and copy the data across (refuses a database that
+#    already has users; ids and sessions are kept).
+docker compose --env-file config/stack.env up -d --build postgres
+docker compose --env-file config/stack.env run --rm --no-deps \
+	--entrypoint sqlite-to-postgres backend -from /data/reisub.db
+# 3. Start the backend on PostgreSQL.
+docker compose --env-file config/stack.env up -d --build backend
+```
+
+`reisub.db` stays in the volume untouched apart from its own migration, so
+going back is setting the backend on SQLite again. Back up PostgreSQL with
+`docker compose --env-file config/stack.env exec -T postgres pg_dump -U reisub
+-Fc reisub > reisub-$(date -u +%F).dump` and restore with `pg_restore`.
+
 ### LiveKit media networking
 
 LiveKit runs with an explicit production configuration. Its API/WebSocket uses
@@ -619,3 +652,11 @@ go test -race ./...
 ```
 
 CI runs the same checks plus `go mod tidy -diff` on every push and pull request.
+
+The tests run on in-memory SQLite. To run them on PostgreSQL as well, give
+them a server; each test gets a schema of its own, dropped afterwards:
+
+```sh
+docker run -d --rm --name reisub-pg-test -e POSTGRES_PASSWORD=test -p 127.0.0.1:55432:5432 postgres:17-alpine
+TEST_DATABASE_URL='postgres://postgres:test@127.0.0.1:55432/postgres?sslmode=disable' go test ./...
+```

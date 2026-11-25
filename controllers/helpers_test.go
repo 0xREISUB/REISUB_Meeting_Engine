@@ -11,7 +11,6 @@ import (
 	"reisub-backend/apierror"
 	"reisub-backend/database"
 
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -20,7 +19,7 @@ func useTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	previous := database.DB
 	name := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
-	db, err := gorm.Open(sqlite.Open("file:"+name+"?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := openTestDB(t, name)
 	if err != nil {
 		t.Fatal(err)
 	}

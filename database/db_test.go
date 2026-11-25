@@ -1,12 +1,15 @@
 package database
 
 import (
+	"net/url"
+	"os"
 	"testing"
 	"time"
 
 	"reisub-backend/models"
 
 	"github.com/glebarez/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -206,5 +209,46 @@ func TestMigrateHashesPlainTokensAndDropsThem(t *testing.T) {
 	db.First(&again, 1)
 	if again.TokenHash != users[0].TokenHash {
 		t.Fatalf("hash changed on a second run: %q", again.TokenHash)
+	}
+}
+
+func TestCountUntrimmedNicksOnPostgres(t *testing.T) {
+	server := os.Getenv("TEST_DATABASE_URL")
+	if server == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	admin, err := gorm.Open(postgres.Open(server), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin.Exec(`DROP SCHEMA IF EXISTS count_untrimmed CASCADE`)
+	admin.Exec(`CREATE SCHEMA count_untrimmed`)
+	t.Cleanup(func() { admin.Exec(`DROP SCHEMA count_untrimmed CASCADE`) })
+	// The schema for every pooled connection, not just one.
+	dsn, err := url.Parse(server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := dsn.Query()
+	query.Set("search_path", "count_untrimmed")
+	dsn.RawQuery = query.Encode()
+	db, err := gorm.Open(postgres.Open(dsn.String()), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.AutoMigrate(&models.User{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, nick := range []string{"alice", "bo b", " carol", "dave ", "\terin", "frank\r\n"} {
+		if err = db.Create(&models.User{Nick: nick, Password: "x"}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	count, err := CountUntrimmedNicks(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 4 {
+		t.Fatalf("CountUntrimmedNicks = %d, want 4", count)
 	}
 }

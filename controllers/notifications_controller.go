@@ -191,8 +191,9 @@ func MarkConversationRead(c *gin.Context) {
 	}
 	row := models.ConversationRead{UserID: user.ID, Conversation: conversation, LastReadID: readTo}
 	err := database.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "user_id"}, {Name: "conversation"}},
-		DoUpdates: clause.Assignments(map[string]any{"last_read_id": gorm.Expr("MAX(last_read_id, ?)", readTo)}),
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "conversation"}},
+		// Never back: the larger of the two, written as both databases take it.
+		DoUpdates: clause.Assignments(map[string]any{"last_read_id": gorm.Expr("CASE WHEN conversation_reads.last_read_id > ? THEN conversation_reads.last_read_id ELSE ? END", readTo, readTo)}),
 	}).Create(&row).Error
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Okundu bilgisi kaydedilemedi")
