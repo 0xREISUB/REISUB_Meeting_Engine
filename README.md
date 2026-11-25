@@ -412,6 +412,8 @@ teams, each with a chat. Everything below needs the session token.
 | `POST /teams/:team_id/meeting` | Answers `{"room_id", "started"}`: the team's room while it can be joined, otherwise a new one. When nobody is in it yet, an invitation goes to the team chat (once per two minutes). Join it with `POST /rooms/join` |
 | `GET /chats/:kind/:id/messages` | `kind` is `friend` (a user id) or `team`; the latest 100 messages, oldest first, or with `?after=<message id>` only newer ones |
 | `POST /chats/:kind/:id/messages` | `{"content"}` (1–2000 characters) |
+| `POST /chats/:kind/:id/read` | `{"last_id"?}` marks the conversation read up to that message (all of it without one); it never moves backwards |
+| `GET /notifications` | `?after=<message id>`: the messages others sent to any of the user's conversations since then, oldest first, at most 50, each with `kind`, `target_id` and `title` (the friend's name or the team's), and `latest_id` to ask from next. Without `after`, only `latest_id`, so old messages are not announced |
 | `POST /chats/friend/:id/call` | Opens a meeting room and leaves an invitation to it in the chat; answers `{"room_id"}` |
 
 A person in these answers (`friends[]`, `requests[].user`, team `members[].user`)
@@ -429,8 +431,10 @@ so they are cached for good. They are kept in `AVATAR_DIR`, by default an
 `avatars` directory beside the database, so on Docker they live on the data
 volume.
 
-A team in `teams[]` has `id`, `name`, `color`, the user's `role`,
-`member_count`, `online_count` and `meeting_live`, with its `room_id` while
+Friends in `GET /social` also carry `unread`, how many of their messages
+the user has not read (left out when none). A team in `teams[]` has `id`,
+`name`, `color`, the user's `role`, `member_count`, `online_count`, `unread`
+and `meeting_live`, with its `room_id` while
 someone is in its meeting. A message has `id`, `sender_id`, `sender` (display
 name), `sender_avatar_url`, `content`, `created_at`, `is_mine`, and `room_id` when it invites to a
 meeting (its `content` is then empty).

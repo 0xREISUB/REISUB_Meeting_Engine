@@ -59,6 +59,15 @@ type SocialMessage struct {
 	CreatedAt time.Time
 }
 
+// ConversationRead is how far a user has read a conversation: up to and
+// including the message LastReadID.
+type ConversationRead struct {
+	ID           uint   `gorm:"primaryKey"`
+	UserID       uint   `gorm:"uniqueIndex:conversation_read_pair;not null"`
+	Conversation string `gorm:"uniqueIndex:conversation_read_pair;not null"`
+	LastReadID   uint   `gorm:"not null"`
+}
+
 // MeetingPresence records that a user is connected to an active room's
 // media session. The LiveKit webhook rewrites a room's rows on every join
 // and leave.

@@ -72,6 +72,18 @@ func GetSocialOverview(c *gin.Context) {
 			overview.Outgoing = append(overview.Outgoing, friendRequestResponse{ID: row.ID, User: summary})
 		}
 	}
+	friendConversations := make([]string, 0, len(overview.Friends))
+	for _, friend := range overview.Friends {
+		friendConversations = append(friendConversations, friendConversation(user.ID, friend.ID))
+	}
+	unread, err := unreadCounts(user.ID, friendConversations)
+	if err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Arkadaşlar okunamadı")
+		return
+	}
+	for i := range overview.Friends {
+		overview.Friends[i].Unread = unread[friendConversation(user.ID, overview.Friends[i].ID)]
+	}
 	var memberships []models.TeamMember
 	if err := database.DB.Where("user_id = ?", user.ID).Find(&memberships).Error; err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Takımlar okunamadı")

@@ -61,6 +61,8 @@ func socialTestRouter(t *testing.T) *gin.Engine {
 	g.GET("/chats/:kind/:id/messages", ListConversationMessages)
 	g.POST("/chats/:kind/:id/messages", SendConversationMessage)
 	g.POST("/chats/friend/:id/call", CallFriend)
+	g.GET("/notifications", GetNotifications)
+	g.POST("/chats/:kind/:id/read", MarkConversationRead)
 	return r
 }
 
@@ -394,4 +396,109 @@ func TestMeetingPresenceFollowsTheWebhook(t *testing.T) {
 	if in, _ = usersInMeeting([]uint{1}); in[1] {
 		t.Fatal("still in a closed room")
 	}
+}
+
+func notificationsOf(t *testing.T, r *gin.Engine, token, after string) notificationsResponse {
+	t.Helper()
+	path := "/notifications"
+	if after != "" {
+		path += "?after=" + after
+	}
+	w := jsonRequest(r, http.MethodGet, path, token, "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("notifications: %d %s", w.Code, w.Body.String())
+	}
+	var response notificationsResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
+func TestNotificationsBringNewMessagesFromEveryConversation(t *testing.T) {
+	r := socialTestRouter(t)
+	befriend(t, r, "alice", "bob")
+	befriend(t, r, "bob", "carol")
+	w := jsonRequest(r, http.MethodPost, "/teams", "alice", `{"name":"Core"}`)
+	var team teamSummary
+	_ = json.Unmarshal(w.Body.Bytes(), &team)
+	jsonRequest(r, http.MethodPost, fmt.Sprintf("/teams/%d/members", team.ID), "alice", `{"user_id":2}`)
+	jsonRequest(r, http.MethodPost, "/chats/friend/1/messages", "bob", `{"content":"old"}`)
+
+	// The first call only says where to start: nothing old is announced.
+	start := notificationsOf(t, r, "alice", "")
+	if len(start.Messages) != 0 || start.LatestID == 0 {
+		t.Fatalf("start: %+v", start)
+	}
+	after := fmt.Sprint(start.LatestID)
+
+	jsonRequest(r, http.MethodPost, "/chats/friend/1/messages", "bob", `{"content":"hi alice"}`)
+	jsonRequest(r, http.MethodPost, fmt.Sprintf("/chats/team/%d/messages", team.ID), "bob", `{"content":"team news"}`)
+	// Not announced: alice's own message, and a chat she is not in.
+	jsonRequest(r, http.MethodPost, "/chats/friend/2/messages", "alice", `{"content":"mine"}`)
+	jsonRequest(r, http.MethodPost, "/chats/friend/3/messages", "bob", `{"content":"for carol"}`)
+
+	got := notificationsOf(t, r, "alice", after)
+	if len(got.Messages) != 2 {
+		t.Fatalf("messages: %+v", got.Messages)
+	}
+	friend, teamMessage := got.Messages[0], got.Messages[1]
+	if friend.Kind != "friend" || friend.TargetID != 2 || friend.Title != "bob" || friend.Content != "hi alice" {
+		t.Fatalf("friend message: %+v", friend)
+	}
+	if teamMessage.Kind != "team" || teamMessage.TargetID != team.ID || teamMessage.Title != "Core" || teamMessage.Sender != "bob" {
+		t.Fatalf("team message: %+v", teamMessage)
+	}
+	if got.LatestID != teamMessage.ID {
+		t.Fatalf("latest_id = %d, want %d", got.LatestID, teamMessage.ID)
+	}
+	// Asked again from there, nothing new.
+	if again := notificationsOf(t, r, "alice", fmt.Sprint(got.LatestID)); len(again.Messages) != 0 {
+		t.Fatalf("again: %+v", again.Messages)
+	}
+}
+
+func TestUnreadCountsAndReading(t *testing.T) {
+	r := socialTestRouter(t)
+	befriend(t, r, "alice", "bob")
+	w := jsonRequest(r, http.MethodPost, "/teams", "alice", `{"name":"Core"}`)
+	var team teamSummary
+	_ = json.Unmarshal(w.Body.Bytes(), &team)
+	jsonRequest(r, http.MethodPost, fmt.Sprintf("/teams/%d/members", team.ID), "alice", `{"user_id":2}`)
+
+	var first socialMessageResponse
+	w = jsonRequest(r, http.MethodPost, "/chats/friend/1/messages", "bob", `{"content":"one"}`)
+	_ = json.Unmarshal(w.Body.Bytes(), &first)
+	jsonRequest(r, http.MethodPost, "/chats/friend/1/messages", "bob", `{"content":"two"}`)
+	jsonRequest(r, http.MethodPost, fmt.Sprintf("/chats/team/%d/messages", team.ID), "bob", `{"content":"three"}`)
+	// Her own messages are never unread to her.
+	jsonRequest(r, http.MethodPost, "/chats/friend/2/messages", "alice", `{"content":"mine"}`)
+
+	overview := overviewOf(t, r, "alice")
+	if overview.Friends[0].Unread != 2 || overview.Teams[0].Unread != 1 {
+		t.Fatalf("unread: friend %d, team %d", overview.Friends[0].Unread, overview.Teams[0].Unread)
+	}
+	// Read up to the first one seen: the second stays unread.
+	jsonRequest(r, http.MethodPost, "/chats/friend/2/read", "alice", fmt.Sprintf(`{"last_id":%d}`, first.ID))
+	if got := overviewOf(t, r, "alice").Friends[0].Unread; got != 1 {
+		t.Fatalf("after reading the first: %d", got)
+	}
+	if w = jsonRequest(r, http.MethodPost, "/chats/friend/2/read", "alice", `{}`); w.Code != http.StatusNoContent {
+		t.Fatalf("read: %d %s", w.Code, w.Body.String())
+	}
+	if got := overviewOf(t, r, "alice").Friends[0].Unread; got != 0 {
+		t.Fatalf("after reading all: %d", got)
+	}
+	// Reading never goes back.
+	jsonRequest(r, http.MethodPost, "/chats/friend/2/read", "alice", fmt.Sprintf(`{"last_id":%d}`, first.ID))
+	if got := overviewOf(t, r, "alice").Friends[0].Unread; got != 0 {
+		t.Fatalf("read went back: %d", got)
+	}
+	// Bob's side is his own.
+	if got := overviewOf(t, r, "bob").Friends[0].Unread; got != 1 {
+		t.Fatalf("bob's unread: %d", got)
+	}
+	// Strangers cannot mark a chat read.
+	w = jsonRequest(r, http.MethodPost, "/chats/friend/1/read", "carol", `{}`)
+	assertAPIError(t, w, http.StatusForbidden, apierror.NotFriends, "Arkadaş değilsiniz")
 }

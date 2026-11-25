@@ -93,6 +93,7 @@ func SetupRoutes(r *gin.Engine) {
 		social.PUT("/me/avatar", controllers.UploadAvatar)
 		social.DELETE("/me/avatar", controllers.DeleteAvatar)
 		social.GET("/social", controllers.GetSocialOverview)
+		social.GET("/notifications", controllers.GetNotifications)
 
 		social.POST("/friends/requests", controllers.SendFriendRequest)
 		social.POST("/friends/requests/:request_id/accept", controllers.AcceptFriendRequest)
@@ -109,6 +110,7 @@ func SetupRoutes(r *gin.Engine) {
 
 		social.GET("/chats/:kind/:id/messages", controllers.ListConversationMessages)
 		social.POST("/chats/:kind/:id/messages", controllers.SendConversationMessage)
+		social.POST("/chats/:kind/:id/read", controllers.MarkConversationRead)
 		social.POST("/chats/friend/:id/call", controllers.CallFriend)
 	}
 }

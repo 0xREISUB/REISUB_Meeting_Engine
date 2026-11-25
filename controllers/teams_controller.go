@@ -37,6 +37,8 @@ type teamSummary struct {
 	// MeetingLive is whether someone is in the team's meeting room now.
 	MeetingLive bool   `json:"meeting_live"`
 	RoomID      string `json:"room_id,omitempty"`
+	// Unread counts the team chat's messages the user has not read.
+	Unread int64 `json:"unread"`
 }
 
 type teamMemberResponse struct {
@@ -91,6 +93,14 @@ func teamSummaries(memberships []models.TeamMember, now time.Time) ([]teamSummar
 	if err != nil {
 		return nil, err
 	}
+	teamConversations := make([]string, 0, len(teams))
+	for _, team := range teams {
+		teamConversations = append(teamConversations, teamConversation(team.ID))
+	}
+	unread, err := unreadCounts(memberships[0].UserID, teamConversations)
+	if err != nil {
+		return nil, err
+	}
 	for _, team := range teams {
 		summary := teamSummary{
 			ID:          team.ID,
@@ -98,6 +108,7 @@ func teamSummaries(memberships []models.TeamMember, now time.Time) ([]teamSummar
 			Color:       team.Color,
 			Role:        roles[team.ID],
 			MeetingLive: team.RoomID != "" && live[team.RoomID],
+			Unread:      unread[teamConversation(team.ID)],
 		}
 		if summary.MeetingLive {
 			summary.RoomID = team.RoomID

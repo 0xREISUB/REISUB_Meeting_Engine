@@ -32,6 +32,9 @@ type userSummary struct {
 	// LastSeenSeconds is how long ago an offline user was last around;
 	// absent when unknown, when they hide, or when they are around.
 	LastSeenSeconds *int64 `json:"last_seen_seconds,omitempty"`
+	// Unread counts the friend's messages the user has not read; only in
+	// the user's own friend list.
+	Unread int64 `json:"unread,omitempty"`
 }
 
 // visiblePresence is what others see of a user: hidden users and users who
