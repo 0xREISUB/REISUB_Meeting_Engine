@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"reisub-backend/apierror"
 	"reisub-backend/database"
@@ -19,6 +20,13 @@ import (
 
 // bcrypt only accepts passwords up to 72 bytes.
 const maxPasswordBytes = 72
+
+// loginFailures counts wrong passwords per nick, from any address.
+var loginFailures = middleware.NewKeyLimiter(20, 15*time.Minute)
+
+// missingUserHash is compared against when the nick is unknown, so that
+// answer takes as long as a wrong password.
+var missingUserHash, _ = bcrypt.GenerateFromPassword([]byte("no such user"), bcrypt.DefaultCost)
 
 type credentials struct {
 	Nick     string `json:"nick" binding:"required"`
@@ -83,20 +91,35 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	var user models.User
+	// Guessing one account from many addresses is held back too.
+	key := strings.ToLower(input.Nick)
+	if over, retryAfter := loginFailures.Exhausted(key); over {
+		middleware.AbortRateLimited(c, retryAfter)
+		return
+	}
+	var users []models.User
 	// Guests have no password and can never log in.
-	if err := database.DB.Where("nick = ? AND is_guest = ?", input.Nick, false).First(&user).Error; err != nil {
-		apierror.Respond(c, http.StatusUnauthorized, apierror.UserNotFound, "Kullanıcı bulunamadı")
+	if err := database.DB.Where("nick = ? AND is_guest = ?", input.Nick, false).Limit(1).Find(&users).Error; err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oturum başlatılamadı")
 		return
 	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(input.Password)); err != nil {
-		apierror.Respond(c, http.StatusUnauthorized, apierror.WrongPassword, "Hatalı şifre")
+	// The same answer, in about the same time, for an unknown nick and a
+	// wrong password: nothing tells which nicks exist.
+	hash := missingUserHash
+	if len(users) > 0 {
+		hash = []byte(users[0].Password)
+	}
+	if err := bcrypt.CompareHashAndPassword(hash, []byte(input.Password)); err != nil || len(users) == 0 {
+		loginFailures.Add(key)
+		apierror.Respond(c, http.StatusUnauthorized, apierror.InvalidCredentials, "Kullanıcı adı veya şifre hatalı")
 		return
 	}
+	loginFailures.Reset(key)
+	user := users[0]
 
 	newToken := generateToken()
-	if err := database.DB.Model(&user).Update("token_hash", models.HashToken(newToken)).Error; err != nil {
+	expires := time.Now().Add(middleware.AccountTokenTTL())
+	if err := database.DB.Model(&user).Updates(map[string]any{"token_hash": models.HashToken(newToken), "token_expires_at": expires}).Error; err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oturum başlatılamadı")
 		return
 	}

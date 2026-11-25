@@ -92,7 +92,7 @@ func TestGuestsCannotLogInAndGuestNicksAreReserved(t *testing.T) {
 	r.POST("/register", Register)
 	_, user := newGuest(t, r)
 	assertAPIError(t, jsonRequest(r, http.MethodPost, "/login", "", `{"nick":"`+user.Nick+`","password":"anything"}`),
-		401, apierror.UserNotFound, "Kullanıcı bulunamadı")
+		401, apierror.InvalidCredentials, "Kullanıcı adı veya şifre hatalı")
 	assertAPIError(t, jsonRequest(r, http.MethodPost, "/login", "", `{"nick":"`+user.Nick+`","password":""}`),
 		400, apierror.MissingCredentials, "Eksik bilgi")
 	for _, nick := range []string{"guest-abc", "GUEST-x", "  Guest-y "} {

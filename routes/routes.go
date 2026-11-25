@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"net/http"
 	"os"
 	"time"
 
@@ -16,6 +17,15 @@ import (
 const (
 	guestsPerWindow = 30
 	guestWindow     = 10 * time.Minute
+)
+
+// Failed logins per client IP per window; then 429 until it ends. New
+// accounts per client IP per window.
+const (
+	loginFailuresPerWindow = 10
+	loginFailureWindow     = 15 * time.Minute
+	registrationsPerWindow = 10
+	registrationWindow     = time.Hour
 )
 
 // Requests under /rooms that answer 404 (an unknown room code, mostly) are
@@ -46,8 +56,10 @@ func SetupRoutes(r *gin.Engine) {
 	// The server's public rules, e.g. whether guests may use meetings.
 	r.GET("/policy", controllers.Policy)
 
-	r.POST("/register", controllers.Register)
-	r.POST("/login", controllers.Login)
+	// Wrong passwords count per address (and per nick, in Login); new
+	// accounts are limited per address too.
+	r.POST("/register", middleware.RateLimit(registrationsPerWindow, registrationWindow), controllers.Register)
+	r.POST("/login", middleware.LimitStatus(loginFailuresPerWindow, loginFailureWindow, http.StatusUnauthorized), controllers.Login)
 	r.POST("/logout", controllers.Logout)
 	// Anonymous guest session; no auth.
 	r.POST("/guest", middleware.RequireGuestsAllowed(), middleware.RateLimit(guestsPerWindow, guestWindow), controllers.CreateGuest)

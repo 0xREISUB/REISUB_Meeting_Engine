@@ -43,9 +43,9 @@ func TestRegisterAndLoginTrimNick(t *testing.T) {
 	}
 	// The password is not trimmed.
 	assertAPIError(t, jsonRequest(r, http.MethodPost, "/login", "", `{"nick":"alice","password":"secret"}`),
-		http.StatusUnauthorized, apierror.WrongPassword, "Hatalı şifre")
+		http.StatusUnauthorized, apierror.InvalidCredentials, "Kullanıcı adı veya şifre hatalı")
 	assertAPIError(t, jsonRequest(r, http.MethodPost, "/login", "", `{"nick":"nobody","password":"x"}`),
-		http.StatusUnauthorized, apierror.UserNotFound, "Kullanıcı bulunamadı")
+		http.StatusUnauthorized, apierror.InvalidCredentials, "Kullanıcı adı veya şifre hatalı")
 }
 
 func TestRegisterRejectsBlankNickAndTrimmedDuplicate(t *testing.T) {

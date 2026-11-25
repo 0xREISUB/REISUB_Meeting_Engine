@@ -90,6 +90,14 @@ func RateLimit(limit int, window time.Duration) gin.HandlerFunc {
 // the window ends. It stops guessing room codes, which a 404 reveals as
 // wrong, without limiting people who use the rooms they know.
 func LimitNotFound(limit int, window time.Duration) gin.HandlerFunc {
+	return LimitStatus(limit, window, http.StatusNotFound)
+}
+
+// LimitStatus allows at most limit answers with one of statuses per client
+// IP in each fixed window; after that every request from that IP gets 429
+// rate_limited until the window ends. Other answers are not counted, so it
+// stops guessing (wrong passwords, unknown codes) without limiting use.
+func LimitStatus(limit int, window time.Duration, statuses ...int) gin.HandlerFunc {
 	l := newLimiter(limit, window)
 	return func(c *gin.Context) {
 		t, ip := now(), c.ClientIP()
@@ -98,8 +106,38 @@ func LimitNotFound(limit int, window time.Duration) gin.HandlerFunc {
 			return
 		}
 		c.Next()
-		if c.Writer.Status() == http.StatusNotFound {
-			l.add(ip, t)
+		for _, status := range statuses {
+			if c.Writer.Status() == status {
+				l.add(ip, t)
+				return
+			}
 		}
 	}
+}
+
+// KeyLimiter counts events per key, such as failed logins per nick, across
+// every address: it holds back guessing spread over many.
+type KeyLimiter struct{ l *limiter }
+
+func NewKeyLimiter(limit int, window time.Duration) *KeyLimiter {
+	return &KeyLimiter{l: newLimiter(limit, window)}
+}
+
+// Exhausted reports whether key has used up its window, and when it resets.
+func (k *KeyLimiter) Exhausted(key string) (bool, time.Duration) {
+	return k.l.exhausted(key, now())
+}
+
+func (k *KeyLimiter) Add(key string) { k.l.add(key, now()) }
+
+// Reset forgets key's count, as after a successful login.
+func (k *KeyLimiter) Reset(key string) {
+	k.l.mu.Lock()
+	defer k.l.mu.Unlock()
+	delete(k.l.counts, key)
+}
+
+// AbortRateLimited answers 429 rate_limited with Retry-After.
+func AbortRateLimited(c *gin.Context, retryAfter time.Duration) {
+	abortRateLimited(c, retryAfter)
 }

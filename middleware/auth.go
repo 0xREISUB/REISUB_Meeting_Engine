@@ -3,6 +3,7 @@ package middleware
 import (
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -45,8 +46,40 @@ func UserForToken(token string) (models.User, bool) {
 	touchLastSeen(user, now)
 	if !user.IsGuest {
 		touchActive(user, now)
+		extendSession(&user, now)
 	}
 	return user, true
+}
+
+// defaultAccountTokenTTL is how long an account session lasts unused.
+const defaultAccountTokenTTL = 30 * 24 * time.Hour
+
+// AccountTokenTTL is how long an account session lasts unused:
+// ACCOUNT_TOKEN_TTL (a Go duration), else 30 days.
+func AccountTokenTTL() time.Duration {
+	if ttl, err := time.ParseDuration(os.Getenv("ACCOUNT_TOKEN_TTL")); err == nil && ttl > 0 {
+		return ttl
+	}
+	return defaultAccountTokenTTL
+}
+
+// sessionRenewal is how often a session in use has its end moved on.
+const sessionRenewal = 24 * time.Hour
+
+// extendSession moves an account session's end on while it is used, at most
+// daily, so only sessions left unused for AccountTokenTTL end. Sessions from
+// before sessions ended get their end here.
+func extendSession(user *models.User, now time.Time) {
+	ttl := AccountTokenTTL()
+	if user.TokenExpiresAt != nil && user.TokenExpiresAt.After(now.Add(ttl-sessionRenewal)) {
+		return
+	}
+	until := now.Add(ttl)
+	if err := database.DB.Model(&models.User{}).Where("id = ?", user.ID).UpdateColumn("token_expires_at", until).Error; err != nil {
+		log.Printf("warning: could not extend the session of user %d: %v", user.ID, err)
+		return
+	}
+	user.TokenExpiresAt = &until
 }
 
 func RequireAuth() gin.HandlerFunc {

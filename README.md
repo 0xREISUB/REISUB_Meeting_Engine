@@ -421,6 +421,17 @@ startup the backend logs a warning if any stored nick still has surrounding
 whitespace (such accounts cannot log in with trimmed input and need a manual
 migration).
 
+`/login` answers an unknown nick and a wrong password the same way
+(`invalid_credentials`, in about the same time), so nobody learns which nicks
+exist. Wrong passwords are limited: 10 per address in 15 minutes, and 20 per
+nick from any addresses, after which logins get `rate_limited` (429) until the
+window ends; a successful login clears the nick's count. `/register` takes 10
+new accounts per address an hour.
+
+An account session lasts `ACCOUNT_TOKEN_TTL` (default 720h, 30 days) unused:
+using it moves its end on, at most once a day, so only sessions left alone
+that long end. Guest sessions keep their own fixed `GUEST_TOKEN_TTL`.
+
 Session tokens (from `/login` and `/guest`) are 256 random bits. The database
 keeps only their SHA-256 (`users.token_hash`), so a copy of it holds no usable
 session; a request's token is hashed and looked up. Passwords are bcrypt
@@ -608,8 +619,9 @@ the session token is missing or expired.
 | `rate_limited` | Too many requests from this address; retry later (429) |
 | `meeting_cooldown` | Your last meeting reached its time limit; wait `retry_after_seconds` before creating another (429) |
 | `nick_taken` | Nick already registered |
-| `user_not_found` | No account with this nick |
-| `wrong_password` | Password does not match |
+| `invalid_credentials` | Login: the nick or the password is wrong (it does not say which) |
+| `user_not_found` | No account with this nick (friend requests; `/login` no longer sends it) |
+| `wrong_password` | No longer sent; older servers' answer to a wrong password |
 | `auth_required` | No session token sent (401) |
 | `invalid_token` | Session token unknown or expired (401 on `/rooms`) |
 | `name_required` | Display name missing |

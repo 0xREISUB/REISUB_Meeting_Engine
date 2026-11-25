@@ -89,3 +89,34 @@ func TestLimitNotFoundCountsOnlyNotFound(t *testing.T) {
 		t.Fatal("limit did not reset after the window:", code)
 	}
 }
+
+func TestLimitStatusCountsOnlyTheGivenAnswers(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/login", LimitStatus(3, time.Minute, http.StatusUnauthorized), func(c *gin.Context) {
+		if c.Query("ok") == "1" {
+			c.Status(http.StatusOK)
+			return
+		}
+		c.Status(http.StatusUnauthorized)
+	})
+	send := func(query string) int {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/login"+query, nil))
+		return w.Code
+	}
+	// Successes do not count.
+	for i := 0; i < 10; i++ {
+		if code := send("?ok=1"); code != http.StatusOK {
+			t.Fatalf("success %d: %d", i, code)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		if code := send(""); code != http.StatusUnauthorized {
+			t.Fatalf("failure %d: %d", i, code)
+		}
+	}
+	if code := send("?ok=1"); code != http.StatusTooManyRequests {
+		t.Fatalf("after 3 failures: %d", code)
+	}
+}

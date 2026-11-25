@@ -58,6 +58,9 @@ services:
       # empty uses 24h).
       ROOM_IDLE_AFTER: ${ROOM_IDLE_AFTER:-}
       GUEST_TOKEN_TTL: ${GUEST_TOKEN_TTL:-}
+      # How long an account session lasts unused (Go duration, empty uses
+      # 720h); each day of use moves its end on.
+      ACCOUNT_TOKEN_TTL: ${ACCOUNT_TOKEN_TTL:-}
       GUEST_INACTIVE_AFTER: ${GUEST_INACTIVE_AFTER:-}
     # No published port: the backend is reachable only through Nginx Proxy
     # Manager (HTTPS) on proxy-agi, and from LiveKit on the default network.

@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"reisub-backend/apierror"
 	"reisub-backend/database"
+	"reisub-backend/middleware"
 
 	"gorm.io/gorm"
 )
@@ -27,6 +29,7 @@ func useTestDB(t *testing.T) *gorm.DB {
 	// Nobody connected, nobody just left: each test starts afresh.
 	hub = newRealtimeHub()
 	hub.onPresence = presenceChanged
+	loginFailures = middleware.NewKeyLimiter(20, 15*time.Minute)
 	t.Cleanup(func() {
 		database.DB = previous
 		if sqlDB, err := db.DB(); err == nil {

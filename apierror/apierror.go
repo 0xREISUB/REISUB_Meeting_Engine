@@ -39,7 +39,10 @@ const (
 	// NickTaken: another account already uses this nick.
 	NickTaken Code = "nick_taken"
 	// UserNotFound: no account with this nick.
-	UserNotFound Code = "user_not_found"
+	// InvalidCredentials: the nick or the password is wrong; which, it does
+	// not say, so nobody learns which nicks exist.
+	InvalidCredentials Code = "invalid_credentials"
+	UserNotFound       Code = "user_not_found"
 	// WrongPassword: the password does not match.
 	WrongPassword Code = "wrong_password"
 	// GuestsNotAllowed: the server requires an account; guest sessions
