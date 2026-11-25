@@ -28,6 +28,7 @@ type userSummary struct {
 	DisplayName   string `json:"display_name"`
 	StatusMessage string `json:"status_message"`
 	Presence      string `json:"presence"`
+	AvatarURL     string `json:"avatar_url"`
 	// LastSeenSeconds is how long ago an offline user was last around;
 	// absent when unknown, when they hide, or when they are around.
 	LastSeenSeconds *int64 `json:"last_seen_seconds,omitempty"`
@@ -58,6 +59,7 @@ func summarize(user models.User, inMeeting map[uint]bool, now time.Time) userSum
 		DisplayName:   user.Name(),
 		StatusMessage: user.StatusMessage,
 		Presence:      visiblePresence(user, inMeeting[user.ID], now),
+		AvatarURL:     avatarURL(user.AvatarFile),
 	}
 	if summary.Presence == presenceOffline && user.Presence != models.PresenceInvisible && user.ActiveAt != nil {
 		seconds := int64(now.Sub(*user.ActiveAt).Seconds())

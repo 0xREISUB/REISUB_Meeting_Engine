@@ -80,12 +80,18 @@ func SetupRoutes(r *gin.Engine) {
 		roomRoutes.POST("/:room_id/messages", controllers.SendRoomMessage)
 	}
 
+	// Profile pictures; public, under names nobody can guess.
+	r.GET("/avatars/:name", controllers.ServeAvatar)
+	r.HEAD("/avatars/:name", controllers.ServeAvatar)
+
 	// Profiles, friends, teams and their chats belong to accounts; guests
 	// are turned away.
 	social := r.Group("", middleware.RequireAuth(), middleware.RequireAccount())
 	{
 		social.GET("/me", controllers.GetProfile)
 		social.PATCH("/me", controllers.UpdateProfile)
+		social.PUT("/me/avatar", controllers.UploadAvatar)
+		social.DELETE("/me/avatar", controllers.DeleteAvatar)
 		social.GET("/social", controllers.GetSocialOverview)
 
 		social.POST("/friends/requests", controllers.SendFriendRequest)

@@ -23,7 +23,9 @@ type socialMessageResponse struct {
 	ID       uint   `json:"id"`
 	SenderID uint   `json:"sender_id"`
 	Sender   string `json:"sender"`
-	Content  string `json:"content"`
+	// SenderAvatarURL is the sender's profile picture, if any.
+	SenderAvatarURL string `json:"sender_avatar_url,omitempty"`
+	Content         string `json:"content"`
 	// RoomID makes the message an invitation to that meeting room.
 	RoomID    string `json:"room_id,omitempty"`
 	CreatedAt string `json:"created_at"`
@@ -157,18 +159,19 @@ func formatSocialMessages(messages []models.SocialMessage, userID uint) ([]socia
 	}
 	response := make([]socialMessageResponse, len(messages))
 	for i, message := range messages {
-		sender := "?"
+		sender, avatar := "?", ""
 		if user, ok := senders[message.SenderID]; ok {
-			sender = user.Name()
+			sender, avatar = user.Name(), avatarURL(user.AvatarFile)
 		}
 		response[i] = socialMessageResponse{
-			ID:        message.ID,
-			SenderID:  message.SenderID,
-			Sender:    sender,
-			Content:   message.Content,
-			RoomID:    message.RoomID,
-			CreatedAt: message.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z07:00"),
-			IsMine:    message.SenderID == userID,
+			ID:              message.ID,
+			SenderID:        message.SenderID,
+			Sender:          sender,
+			SenderAvatarURL: avatar,
+			Content:         message.Content,
+			RoomID:          message.RoomID,
+			CreatedAt:       message.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z07:00"),
+			IsMine:          message.SenderID == userID,
 		}
 	}
 	return response, nil

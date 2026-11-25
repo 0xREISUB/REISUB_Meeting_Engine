@@ -24,6 +24,7 @@ type profileResponse struct {
 	DisplayName   string `json:"display_name"`
 	StatusMessage string `json:"status_message"`
 	Presence      string `json:"presence"`
+	AvatarURL     string `json:"avatar_url"`
 }
 
 func makeProfile(user models.User) profileResponse {
@@ -37,6 +38,7 @@ func makeProfile(user models.User) profileResponse {
 		DisplayName:   user.Name(),
 		StatusMessage: user.StatusMessage,
 		Presence:      presence,
+		AvatarURL:     avatarURL(user.AvatarFile),
 	}
 }
 

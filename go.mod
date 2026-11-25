@@ -9,6 +9,7 @@ require (
 	github.com/livekit/protocol v1.52.0
 	github.com/twitchtv/twirp v8.1.3+incompatible
 	golang.org/x/crypto v0.55.0
+	golang.org/x/image v0.48.0
 	google.golang.org/protobuf v1.36.12
 	gorm.io/gorm v1.31.2
 )
@@ -103,9 +104,9 @@ require (
 	golang.org/x/arch v0.30.0 // indirect
 	golang.org/x/exp v0.0.0-20260603202125-055de637280b // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect

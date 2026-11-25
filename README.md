@@ -397,6 +397,8 @@ teams, each with a chat. Everything below needs the session token.
 | --- | --- |
 | `GET /me` | The user's own profile: `id`, `nick`, `display_name` (the nick when unset), `status_message`, `presence` (`online`, `busy` or `invisible`, as chosen) |
 | `PATCH /me` | Changes any of `display_name` (≤ 40, empty goes back to the nick), `status_message` (≤ 80), `presence`; answers the profile |
+| `PUT /me/avatar` | Multipart field `avatar`, a JPEG or PNG of at most 8 MB: its middle square, at most 256 px, becomes the profile picture (re-encoded as JPEG, without metadata); answers the profile |
+| `DELETE /me/avatar` | Removes the profile picture |
 | `GET /social` | Everything the social tab shows: `profile`, `friends`, `requests` (incoming), `outgoing`, `teams` |
 | `POST /friends/requests` | `{"nick"}` asks someone to be friends (201 `pending`); if they had asked first, both become friends (200 `accepted`) |
 | `POST /friends/requests/:id/accept` · `/decline` | Answers a request sent to the user |
@@ -413,18 +415,24 @@ teams, each with a chat. Everything below needs the session token.
 | `POST /chats/friend/:id/call` | Opens a meeting room and leaves an invitation to it in the chat; answers `{"room_id"}` |
 
 A person in these answers (`friends[]`, `requests[].user`, team `members[].user`)
-is `id`, `nick`, `display_name`, `status_message` and `presence` as friends see
-it: `in_meeting` while connected to an active room's media session (from the
+is `id`, `nick`, `display_name`, `status_message`, `avatar_url` and `presence`
+as friends see it: `in_meeting` while connected to an active room's media session (from the
 LiveKit webhook), `busy` or `online` while they made a request in the last 45
 seconds (authenticated requests refresh this every 20 seconds), else
 `offline`, with `last_seen_seconds`. Users who chose `invisible` always show
 `offline`, with no last seen. Clients refresh `GET /social` every few seconds
 while it is open, which also keeps the user online.
 
+Profile pictures (`avatar_url`, empty without one) are served by `GET
+/avatars/:name` without authentication. Each upload gets a new random name,
+so they are cached for good. They are kept in `AVATAR_DIR`, by default an
+`avatars` directory beside the database, so on Docker they live on the data
+volume.
+
 A team in `teams[]` has `id`, `name`, `color`, the user's `role`,
 `member_count`, `online_count` and `meeting_live`, with its `room_id` while
 someone is in its meeting. A message has `id`, `sender_id`, `sender` (display
-name), `content`, `created_at`, `is_mine`, and `room_id` when it invites to a
+name), `sender_avatar_url`, `content`, `created_at`, `is_mine`, and `room_id` when it invites to a
 meeting (its `content` is then empty).
 
 ## Server policy
@@ -565,6 +573,8 @@ the session token is missing or expired.
 | `team_role_required` | Only the team's owner or admins may do this (403) |
 | `already_team_member` | That person is already in the team (409) |
 | `team_full` | The team has 50 members (409) |
+| `invalid_image` | Profile picture missing, or not a JPEG or PNG |
+| `image_too_large` | Profile picture over 8 MB or 40 megapixels (413) |
 
 ## Development
 

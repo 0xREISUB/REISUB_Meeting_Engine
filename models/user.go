@@ -33,6 +33,9 @@ type User struct {
 	// ActiveAt is refreshed every few seconds by authenticated requests;
 	// friends see a user as offline once it is older than a short timeout.
 	ActiveAt *time.Time
+	// AvatarFile is the profile picture's file name in the avatar directory;
+	// empty without one.
+	AvatarFile string `gorm:"not null;default:''"`
 }
 
 // Presence a user can choose.

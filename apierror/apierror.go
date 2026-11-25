@@ -126,6 +126,10 @@ const (
 	TeamRoleRequired      Code = "team_role_required"
 	AlreadyTeamMember     Code = "already_team_member"
 	TeamFull              Code = "team_full"
+	// InvalidImage: the profile picture is not a JPEG or PNG image.
+	InvalidImage Code = "invalid_image"
+	// ImageTooLarge: the profile picture is over 8 MB or too many pixels.
+	ImageTooLarge Code = "image_too_large"
 )
 
 type Body struct {
