@@ -130,7 +130,7 @@ func moderationTestRouter(t *testing.T) (*gin.Engine, *fakeModeration) {
 	t.Helper()
 	db := useTestDB(t)
 	var err error
-	for _, u := range []models.User{{ID: 11, Nick: "owner", Password: "unused", Token: "owner-token"}, {ID: 22, Nick: "guest", Password: "unused", Token: "guest-token"}} {
+	for _, u := range []models.User{{ID: 11, Nick: "owner", Password: "unused", TokenHash: models.HashToken("owner-token")}, {ID: 22, Nick: "guest", Password: "unused", TokenHash: models.HashToken("guest-token")}} {
 		if err = db.Create(&u).Error; err != nil {
 			t.Fatal(err)
 		}

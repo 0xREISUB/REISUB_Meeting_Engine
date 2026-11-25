@@ -46,7 +46,7 @@ func tokenFor(userID uint) string {
 // if connected, a LiveKit session for them.
 func addMember(t *testing.T, f *fakeModeration, userID uint, permissions string, grantedAt time.Time, connected bool) *livekit.ParticipantInfo {
 	t.Helper()
-	if err := database.DB.Create(&models.User{ID: userID, Nick: fmt.Sprintf("u%d", userID), Password: "x", Token: tokenFor(userID)}).Error; err != nil {
+	if err := database.DB.Create(&models.User{ID: userID, Nick: fmt.Sprintf("u%d", userID), Password: "x", TokenHash: models.HashToken(tokenFor(userID))}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if permissions != "" {

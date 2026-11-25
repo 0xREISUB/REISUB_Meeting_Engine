@@ -34,7 +34,7 @@ func UserForToken(token string) (models.User, bool) {
 		return models.User{}, false
 	}
 	var users []models.User
-	if err := database.DB.Where("token = ?", token).Limit(1).Find(&users).Error; err != nil || len(users) == 0 {
+	if err := database.DB.Where("token_hash = ?", models.HashToken(token)).Limit(1).Find(&users).Error; err != nil || len(users) == 0 {
 		return models.User{}, false
 	}
 	user := users[0]

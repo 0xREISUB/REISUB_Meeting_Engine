@@ -25,10 +25,10 @@ func socialTestRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	db := useTestDB(t)
 	for _, u := range []models.User{
-		{ID: 1, Nick: "alice", Password: "x", Token: "alice"},
-		{ID: 2, Nick: "bob", Password: "x", Token: "bob"},
-		{ID: 3, Nick: "carol", Password: "x", Token: "carol"},
-		{ID: 9, Nick: "guest-1", Token: "guest", IsGuest: true},
+		{ID: 1, Nick: "alice", Password: "x", TokenHash: models.HashToken("alice")},
+		{ID: 2, Nick: "bob", Password: "x", TokenHash: models.HashToken("bob")},
+		{ID: 3, Nick: "carol", Password: "x", TokenHash: models.HashToken("carol")},
+		{ID: 9, Nick: "guest-1", TokenHash: models.HashToken("guest"), IsGuest: true},
 	} {
 		if err := db.Create(&u).Error; err != nil {
 			t.Fatal(err)

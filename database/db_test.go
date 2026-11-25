@@ -165,3 +165,46 @@ func TestMigrateConvertsRolesToPermissionsOnce(t *testing.T) {
 	}
 	check("after a second startup")
 }
+
+func TestMigrateHashesPlainTokensAndDropsThem(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:hash-tokens?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	// An older database, which kept sessions plain.
+	if err = db.Exec(`CREATE TABLE users (id integer PRIMARY KEY, nick text NOT NULL UNIQUE, password text NOT NULL, token text, is_guest numeric NOT NULL DEFAULT false, created_at datetime)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(`CREATE INDEX idx_users_token ON users(token)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Exec(`INSERT INTO users (id, nick, password, token) VALUES (1, 'alice', 'x', 'alice-session'), (2, 'bob', 'x', '')`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err = Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	if db.Migrator().HasColumn("users", "token") {
+		t.Fatal("the plain token column is still there")
+	}
+	var users []models.User
+	db.Order("id").Find(&users)
+	if users[0].TokenHash != models.HashToken("alice-session") || users[1].TokenHash != "" {
+		t.Fatalf("hashes: %q, %q", users[0].TokenHash, users[1].TokenHash)
+	}
+	// Running again changes nothing.
+	if err = Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	var again models.User
+	db.First(&again, 1)
+	if again.TokenHash != users[0].TokenHash {
+		t.Fatalf("hash changed on a second run: %q", again.TokenHash)
+	}
+}

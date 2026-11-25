@@ -41,10 +41,11 @@ func CreateGuest(c *gin.Context) {
 	_, _ = rand.Read(suffix)
 	now := time.Now()
 	expires := now.Add(envDuration("GUEST_TOKEN_TTL", defaultGuestTokenTTL))
+	token := generateToken()
 	user := models.User{
 		Nick:           models.GuestNickPrefix + hex.EncodeToString(suffix),
 		Password:       "",
-		Token:          generateToken(),
+		TokenHash:      models.HashToken(token),
 		IsGuest:        true,
 		TokenExpiresAt: &expires,
 		LastSeenAt:     &now,
@@ -54,7 +55,7 @@ func CreateGuest(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Misafir oturumu oluşturulamadı")
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{"token": user.Token, "guest": true})
+	c.JSON(http.StatusCreated, gin.H{"token": token, "guest": true})
 }
 
 // defaultGuestInactiveAfter is how long an unused guest is kept

@@ -28,7 +28,7 @@ func newGuest(t *testing.T, r *gin.Engine) (string, models.User) {
 		t.Fatalf("POST /guest = %d %s", w.Code, w.Body.String())
 	}
 	var user models.User
-	if err := database.DB.Where("token = ?", body.Token).First(&user).Error; err != nil {
+	if err := database.DB.Where("token_hash = ?", models.HashToken(body.Token)).First(&user).Error; err != nil {
 		t.Fatal(err)
 	}
 	return body.Token, user

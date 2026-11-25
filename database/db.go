@@ -41,13 +41,63 @@ func ConnectDB() {
 	}
 }
 
-// Migrate creates or updates all tables. The first time the room_roles table
+// Migrate creates or updates all tables (see migrateTables), then hashes
+// the session tokens older databases stored plain (see hashStoredTokens).
+//
+// The first time the room_roles table
 // is created, every existing room's OwnerID becomes an owner row; this runs
 // exactly once, in the same transaction as the table creation, so later
 // role changes are never overwritten by a restart. Likewise, the first time
 // room_roles gains its permissions column, the former roles are converted to
 // permissions once (see convertRolesToPermissions).
 func Migrate(db *gorm.DB) error {
+	if err := migrateTables(db); err != nil {
+		return err
+	}
+	return hashStoredTokens(db)
+}
+
+// hashStoredTokens replaces the plain session tokens older databases kept
+// in users.token with their hashes (models.HashToken) and drops the column,
+// so nothing in the database can be used as a session. Sessions stay valid:
+// a token's hash is what it is looked up by now. Runs once, while the
+// column is there.
+func hashStoredTokens(db *gorm.DB) error {
+	if !db.Migrator().HasColumn("users", "token") {
+		return nil
+	}
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var rows []struct {
+			ID    uint
+			Token string
+		}
+		if err := tx.Table("users").Select("id, token").Where("token <> ''").Scan(&rows).Error; err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if err := tx.Table("users").Where("id = ?", row.ID).Update("token_hash", models.HashToken(row.Token)).Error; err != nil {
+				return err
+			}
+		}
+		// Plain SQL, which SQLite and PostgreSQL both take.
+		if err := tx.Exec(`DROP INDEX IF EXISTS idx_users_token`).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`ALTER TABLE users DROP COLUMN token`).Error
+	})
+	if err != nil {
+		return err
+	}
+	// SQLite keeps freed pages, old tokens in them, in the file until it is
+	// rewritten.
+	if db.Dialector.Name() == "sqlite" {
+		return db.Exec(`VACUUM`).Error
+	}
+	return nil
+}
+
+// migrateTables creates or updates all tables.
+func migrateTables(db *gorm.DB) error {
 	legacyRoles := db.Migrator().HasTable(&models.RoomRole{}) && !db.Migrator().HasColumn(&models.RoomRole{}, "permissions")
 	if !db.Migrator().HasTable(&models.RoomRole{}) {
 		err := db.Transaction(func(tx *gorm.DB) error {

@@ -94,7 +94,7 @@ func Login(c *gin.Context) {
 	}
 
 	newToken := generateToken()
-	if err := database.DB.Model(&user).Update("token", newToken).Error; err != nil {
+	if err := database.DB.Model(&user).Update("token_hash", models.HashToken(newToken)).Error; err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oturum başlatılamadı")
 		return
 	}
@@ -109,13 +109,13 @@ func Logout(c *gin.Context) {
 	}
 
 	var user models.User
-	if err := database.DB.Where("token = ?", token).First(&user).Error; err != nil {
+	if err := database.DB.Where("token_hash = ?", models.HashToken(token)).First(&user).Error; err != nil {
 		apierror.Respond(c, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
 		return
 	}
 
-	// Rotate to a fresh random token rather than clearing it, so an empty
-	// token can never match a logged-out user.
-	database.DB.Model(&user).Update("token", generateToken())
+	// No session any more: no hash matches it. (A hash is never empty, so
+	// the empty value matches no token either.)
+	database.DB.Model(&user).Update("token_hash", "")
 	c.JSON(http.StatusOK, gin.H{"message": "Başarıyla çıkış yapıldı"})
 }

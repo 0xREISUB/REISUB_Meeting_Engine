@@ -388,6 +388,13 @@ startup the backend logs a warning if any stored nick still has surrounding
 whitespace (such accounts cannot log in with trimmed input and need a manual
 migration).
 
+Session tokens (from `/login` and `/guest`) are 256 random bits. The database
+keeps only their SHA-256 (`users.token_hash`), so a copy of it holds no usable
+session; a request's token is hashed and looked up. Passwords are bcrypt
+hashes. Databases from before this kept tokens plain: on first start the
+backend hashes them in place (sessions stay valid), drops the plain column and,
+on SQLite, rewrites the file so no old token is left in it.
+
 ## Social: profiles, friends and teams
 
 Accounts (not guests: `account_required`, 403) have a profile, friends and
