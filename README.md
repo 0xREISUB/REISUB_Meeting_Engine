@@ -440,7 +440,9 @@ A user may be signed in on several devices at once: each `/login` starts one
 more session (table `sessions`) and leaves the others; `/logout` ends only the
 one it is called with. Beyond 10 sessions the oldest end. Sessions from before
 this (kept on the user, `users.token_hash`) move to `sessions` on their first
-use, so nobody is signed out.
+use, so nobody is signed out; those without an end get one at start-up,
+`ACCOUNT_TOKEN_TTL` away, so one never used again ends rather than staying
+valid for good.
 
 Session tokens (from `/login` and `/guest`) are 256 random bits. The database
 keeps only their SHA-256 (`sessions.token_hash`), so a copy of it holds no

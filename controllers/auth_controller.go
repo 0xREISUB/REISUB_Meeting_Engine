@@ -24,7 +24,12 @@ var loginFailures = middleware.NewKeyLimiter(20, 15*time.Minute)
 
 // missingUserHash is compared against when the nick is unknown, so that
 // answer takes as long as a wrong password.
-var missingUserHash, _ = bcrypt.GenerateFromPassword([]byte("no such user"), bcrypt.DefaultCost)
+var missingUserHash, _ = bcrypt.GenerateFromPassword([]byte("no such user"), passwordCost)
+
+// passwordCost is bcrypt's work factor for new passwords. Tests lower it,
+// so that registering is quick; useTestDB also hashes missingUserHash
+// again with it, keeping its time like a real password's.
+var passwordCost = bcrypt.DefaultCost
 
 type credentials struct {
 	Nick     string `json:"nick" binding:"required"`
@@ -57,7 +62,7 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), passwordCost)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Kayıt tamamlanamadı")
 		return

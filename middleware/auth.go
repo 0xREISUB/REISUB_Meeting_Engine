@@ -93,6 +93,17 @@ func adoptLegacySession(hash string) (models.Session, bool) {
 	return session, true
 }
 
+// BoundLegacySessions gives the account sessions from before sessions ended
+// (users.token_hash, with no end) an end of AccountTokenTTL from now. One
+// used by then moves to a Session and lives on as any other; one never
+// used ends, rather than staying valid for good. It answers how many.
+func BoundLegacySessions(db *gorm.DB) (int64, error) {
+	result := db.Model(&models.User{}).
+		Where("is_guest = ? AND token_hash <> '' AND token_expires_at IS NULL", false).
+		UpdateColumn("token_expires_at", time.Now().Add(AccountTokenTTL()))
+	return result.RowsAffected, result.Error
+}
+
 // NewSession signs the user in on one more device and returns its token.
 // Beyond MaxSessionsPerUser the oldest sessions end.
 func NewSession(db *gorm.DB, userID uint, expiresAt *time.Time) (string, error) {

@@ -3,6 +3,7 @@ package controllers
 import (
 	"bytes"
 	"encoding/json"
+	"golang.org/x/crypto/bcrypt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,6 +33,9 @@ func useTestDB(t *testing.T) *gorm.DB {
 	watchers = &roomWatchers{rooms: map[string]map[*realtimeClient]struct{}{}}
 	RoomMisses = middleware.NewKeyLimiter(30, 10*time.Minute)
 	loginFailures = middleware.NewKeyLimiter(20, 15*time.Minute)
+	// Quick passwords: the work factor is the same everywhere in a test.
+	passwordCost = bcrypt.MinCost
+	missingUserHash, _ = bcrypt.GenerateFromPassword([]byte("no such user"), passwordCost)
 	t.Cleanup(func() {
 		database.DB = previous
 		if sqlDB, err := db.DB(); err == nil {

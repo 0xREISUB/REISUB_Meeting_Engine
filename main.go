@@ -10,6 +10,7 @@ import (
 	"reisub-backend/apierror"
 	"reisub-backend/controllers"
 	"reisub-backend/database"
+	"reisub-backend/middleware"
 	"reisub-backend/policy"
 	"reisub-backend/routes"
 
@@ -18,6 +19,11 @@ import (
 
 func main() {
 	database.ConnectDB()
+	if n, err := middleware.BoundLegacySessions(database.DB); err != nil {
+		log.Printf("warning: could not give old sessions an end: %v", err)
+	} else if n > 0 {
+		log.Printf("gave %d old sessions an end", n)
+	}
 	controllers.StartGuestCleanup()
 	controllers.StartPush()
 	if err := controllers.ScheduleCallEnds(); err != nil {

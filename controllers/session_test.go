@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"reisub-backend/database"
 	"reisub-backend/middleware"
@@ -102,5 +103,28 @@ func TestSessionsFromBeforeMoveOnFirstUse(t *testing.T) {
 	database.DB.Model(&models.User{}).Where("nick = ?", "alice").UpdateColumn("token_hash", models.HashToken("unused-device-token-0123456789abcdef01"))
 	if w := jsonRequest(r, http.MethodPost, "/logout", "unused-device-token-0123456789abcdef01", ""); w.Code != http.StatusOK || signedIn(r, "unused-device-token-0123456789abcdef01") {
 		t.Fatal("unused old session did not sign out:", w.Code)
+	}
+}
+
+func TestOldSessionsGetAnEnd(t *testing.T) {
+	r := sessionRouter(t)
+	const old = "never-used-device-token-0123456789abcdef"
+	database.DB.Model(&models.User{}).Where("nick = ?", "alice").UpdateColumn("token_hash", models.HashToken(old))
+	if n, err := middleware.BoundLegacySessions(database.DB); err != nil || n != 1 {
+		t.Fatalf("bounded %d: %v", n, err)
+	}
+	var user models.User
+	database.DB.Where("nick = ?", "alice").First(&user)
+	if user.TokenExpiresAt == nil || time.Until(*user.TokenExpiresAt) < middleware.AccountTokenTTL()-time.Minute {
+		t.Fatalf("end %v", user.TokenExpiresAt)
+	}
+	// A second start changes nothing.
+	if n, _ := middleware.BoundLegacySessions(database.DB); n != 0 {
+		t.Fatalf("bounded again: %d", n)
+	}
+	// Still unused when it comes, it is over.
+	database.DB.Model(&models.User{}).Where("nick = ?", "alice").UpdateColumn("token_expires_at", time.Now().Add(-time.Minute))
+	if signedIn(r, old) {
+		t.Fatal("an old session past its end still works")
 	}
 }
