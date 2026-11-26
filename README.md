@@ -499,6 +499,19 @@ with `GET /notifications?after=` and `GET /social`, since events sent while
 it was away are not kept. Behind Nginx Proxy Manager, the proxy host needs
 "Websockets Support" on.
 
+A connection can watch one meeting instead, guests too:
+`{"type":"auth","token":"...","room":"<room code>"}`. Only someone in the
+meeting may: its owner or someone granted rights in it, someone who joined
+or was let in, or someone waiting to be let in now, and not removed from it.
+Anything else (an unknown or ended code, or a meeting one is not in) closes
+with 4404, all alike, and counts against the same per-address limit as wrong
+codes under `/rooms` (30 in 10 minutes); past it the connection closes with
+4429. A watching connection gets `{"type":"room","room":...,"what":"chat"}`
+for a new chat message and `"what":"state"` when `/state` or one's waiting
+request changed, and nothing social. Events carry no data: the app reads it
+again with the usual, checked requests, and polls slowly besides (15 s, 10 s
+while waiting) in case an event was missed.
+
 In meetings, a participant with a profile picture carries its path in the
 LiveKit attribute `meeting.avatar_url` (set in the signed join token, so it
 cannot be put on by anyone else); the apps show it while the camera is off.

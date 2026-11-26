@@ -128,10 +128,14 @@ func (h *realtimeHub) send(userID uint, event any) {
 
 // realtimeEvent tells a device something changed.
 type realtimeEvent struct {
-	// Type is "message" (Message holds it) or "social" (read the social
-	// overview again).
+	// Type is "message" (Message holds it), "social" (read the social
+	// overview again) or "room" (see Room and What).
 	Type    string               `json:"type"`
 	Message *notificationMessage `json:"message,omitempty"`
+	// Room and What, for "room" events: which meeting, and what to read
+	// again in it (roomChat or roomState).
+	Room string `json:"room,omitempty"`
+	What string `json:"what,omitempty"`
 }
 
 // socialChanged tells the users their social overview changed: a friend

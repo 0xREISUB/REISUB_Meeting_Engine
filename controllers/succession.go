@@ -263,5 +263,6 @@ func LeaveRoom(c *gin.Context) {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Yeni oda sahibi belirlenemedi. Tekrar deneyin.")
 		return
 	}
+	roomChanged(room.RoomID, roomState)
 	c.JSON(http.StatusOK, gin.H{"status": "left"})
 }

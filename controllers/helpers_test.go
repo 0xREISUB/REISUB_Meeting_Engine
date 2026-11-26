@@ -29,6 +29,8 @@ func useTestDB(t *testing.T) *gorm.DB {
 	// Nobody connected, nobody just left: each test starts afresh.
 	hub = newRealtimeHub()
 	hub.onPresence = presenceChanged
+	watchers = &roomWatchers{rooms: map[string]map[*realtimeClient]struct{}{}}
+	RoomMisses = middleware.NewKeyLimiter(30, 10*time.Minute)
 	loginFailures = middleware.NewKeyLimiter(20, 15*time.Minute)
 	t.Cleanup(func() {
 		database.DB = previous

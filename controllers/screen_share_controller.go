@@ -131,6 +131,7 @@ func saveShare(room *models.Room, identity string, until int64) error {
 	room.ScreenShareIdentity = identity
 	room.ScreenShareLeaseUntil = until
 	forgetShareCheck(room.RoomID)
+	roomChanged(room.RoomID, roomState)
 	return nil
 }
 

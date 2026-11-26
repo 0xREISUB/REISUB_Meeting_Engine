@@ -80,6 +80,7 @@ func SendRoomMessage(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Mesaj gönderilemedi")
 		return
 	}
+	roomChanged(roomID, roomChat)
 	c.JSON(http.StatusCreated, formatChatMessage(message, user.ID))
 }
 

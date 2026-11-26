@@ -32,7 +32,18 @@ const (
 	closeAuthRequired    websocket.StatusCode = 4400
 	closeInvalidToken    websocket.StatusCode = 4401
 	closeAccountRequired websocket.StatusCode = 4403
+	// closeRoomGone: no meeting the user may watch by that code: unknown,
+	// ended, or one they are not in (or were removed from). All look the
+	// same, so watching tells nothing about which codes exist.
+	closeRoomGone websocket.StatusCode = 4404
+	// closeRateLimited: too many refused codes from this address; the
+	// same limit as wrong codes under /rooms.
+	closeRateLimited websocket.StatusCode = 4429
 )
+
+// RoomMisses counts, per client IP, room codes that came to nothing: 404s
+// under /rooms and meetings refused to watch here. The routes share theirs.
+var RoomMisses = middleware.NewKeyLimiter(30, 10*time.Minute)
 
 func init() {
 	hub.onPresence = presenceChanged
@@ -46,6 +57,11 @@ var realtimeHandlers sync.WaitGroup
 // {"type":"auth","token":...}, answers {"type":"ready"}, then sends events
 // ({"type":"message",...} or {"type":"social"}) as they happen. The token
 // travels in a message rather than the URL, so no log ever holds it.
+//
+// With "room" in the auth message the connection watches that meeting
+// instead, for anyone in it, guests too: it sends
+// {"type":"room","room":...,"what":"chat"|"state"} when something there
+// changes, and nothing social.
 func RealtimeSocket(c *gin.Context) {
 	realtimeHandlers.Add(1)
 	defer realtimeHandlers.Done()
@@ -61,6 +77,7 @@ func RealtimeSocket(c *gin.Context) {
 	var hello struct {
 		Type  string `json:"type"`
 		Token string `json:"token"`
+		Room  string `json:"room"`
 	}
 	err = wsjson.Read(authCtx, conn, &hello)
 	cancel()
@@ -73,14 +90,28 @@ func RealtimeSocket(c *gin.Context) {
 		conn.Close(closeInvalidToken, "invalid token")
 		return
 	}
-	if user.IsGuest {
-		conn.Close(closeAccountRequired, "account required")
-		return
-	}
-
 	client := &realtimeClient{userID: user.ID, send: make(chan []byte, realtimeQueue), gone: make(chan struct{})}
-	hub.add(client)
-	defer hub.remove(client)
+	if roomID := strings.TrimSpace(hello.Room); roomID != "" {
+		ip := c.ClientIP()
+		if over, _ := RoomMisses.Exhausted(ip); over {
+			conn.Close(closeRateLimited, "rate limited")
+			return
+		}
+		if !mayWatchRoom(roomID, user.ID) {
+			RoomMisses.Add(ip)
+			conn.Close(closeRoomGone, "room gone")
+			return
+		}
+		watchers.add(roomID, client)
+		defer watchers.remove(roomID, client)
+	} else {
+		if user.IsGuest {
+			conn.Close(closeAccountRequired, "account required")
+			return
+		}
+		hub.add(client)
+		defer hub.remove(client)
+	}
 	if err := wsjson.Write(ctx, conn, map[string]string{"type": "ready"}); err != nil {
 		return
 	}
@@ -112,6 +143,34 @@ func RealtimeSocket(c *gin.Context) {
 			}
 		}
 	}
+}
+
+// mayWatchRoom reports whether the user may watch the active meeting: they
+// hold a role in it (the owner, or granted rights), joined or were let into
+// it, or are waiting to be let in now; and were not removed from it. A
+// code alone is not enough.
+func mayWatchRoom(roomID string, userID uint) bool {
+	if !activeRoomExists(roomID) {
+		return false
+	}
+	if banned, err := isBanned(roomID, userID); err != nil || banned {
+		return false
+	}
+	if row, err := roleRow(database.DB, roomID, userID); err != nil {
+		return false
+	} else if row != nil {
+		return true
+	}
+	if admitted, err := isAdmitted(roomID, userID); err != nil {
+		return false
+	} else if admitted {
+		return true
+	}
+	var waiting int64
+	err := database.DB.Model(&models.WaitingRequest{}).
+		Where("room_id = ? AND user_id = ? AND status = ?", roomID, userID, models.WaitingStatusWaiting).
+		Count(&waiting).Error
+	return err == nil && waiting > 0
 }
 
 // presenceChanged tells a user's friends and teams they came online or

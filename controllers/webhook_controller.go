@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"log"
 	"net/http"
 	"os"
 
@@ -78,10 +79,18 @@ func LiveKitWebhook(c *gin.Context) {
 	left := event.GetParticipant().GetIdentity()
 	gone := func(p *livekit.ParticipantInfo) bool { return left != "" && p.Identity == left }
 	recordMeetingPresence(room.RoomID, ps, gone)
+	// A screen share ends with its holder, now rather than at the next
+	// /state read.
+	if room.ScreenShareIdentity != "" && room.ScreenShareIdentity == left {
+		if err := saveShare(&room, "", 0); err != nil {
+			log.Printf("warning: could not release the screen share in room %s: %v", room.RoomID, err)
+		}
+	}
 	if err := runSuccession(ctx, svc, &room, ps, gone); err != nil {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Yeni oda sahibi belirlenemedi")
 		return
 	}
+	roomChanged(room.RoomID, roomState)
 	c.Status(http.StatusNoContent)
 }
 

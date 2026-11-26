@@ -69,8 +69,11 @@ func SetupRoutes(r *gin.Engine) {
 
 	roomRoutes := r.Group("/rooms")
 	// A room code is the only secret needed to join, and a 404 tells a wrong
-	// code apart: cap wrong guesses per address.
-	roomRoutes.Use(middleware.LimitNotFound(roomMissesPerWindow, roomMissWindow), middleware.RequireAuth())
+	// code apart: cap wrong guesses per address. Meetings the realtime
+	// connection refuses to watch count in the same window.
+	roomMisses := middleware.NewKeyLimiter(roomMissesPerWindow, roomMissWindow)
+	controllers.RoomMisses = roomMisses
+	roomRoutes.Use(middleware.LimitStatusWith(roomMisses, http.StatusNotFound), middleware.RequireAuth())
 	{
 		roomRoutes.POST("", controllers.CreateRoom)
 		roomRoutes.POST("/join", controllers.JoinRoom)

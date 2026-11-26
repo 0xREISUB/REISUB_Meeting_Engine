@@ -98,7 +98,14 @@ func LimitNotFound(limit int, window time.Duration) gin.HandlerFunc {
 // rate_limited until the window ends. Other answers are not counted, so it
 // stops guessing (wrong passwords, unknown codes) without limiting use.
 func LimitStatus(limit int, window time.Duration, statuses ...int) gin.HandlerFunc {
-	l := newLimiter(limit, window)
+	return LimitStatusWith(NewKeyLimiter(limit, window), statuses...)
+}
+
+// LimitStatusWith is LimitStatus counting in k, per client IP, so that
+// something outside HTTP (the realtime connection) can count in the same
+// window.
+func LimitStatusWith(k *KeyLimiter, statuses ...int) gin.HandlerFunc {
+	l := k.l
 	return func(c *gin.Context) {
 		t, ip := now(), c.ClientIP()
 		if over, retryAfter := l.exhausted(ip, t); over {

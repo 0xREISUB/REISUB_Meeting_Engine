@@ -101,6 +101,8 @@ func closeRoom(ctx context.Context, service liveKitRoomService, room *models.Roo
 	if err := database.DB.Model(room).Update("status", models.RoomStatusClosed).Error; err != nil {
 		return closeStatus, err
 	}
+	// Those still waiting to be let in learn it is over.
+	roomChanged(room.RoomID, roomState)
 	return closeStatus, nil
 }
 

@@ -325,6 +325,8 @@ func SetParticipantPermissions(c *gin.Context) {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "İzinler kaydedildi fakat tüm oturumlara uygulanamadı. Tekrar deneyin.")
 		return
 	}
+	// Who sees the waiting list may have changed.
+	roomChanged(room.RoomID, roomState)
 	c.JSON(http.StatusOK, gin.H{"identity": identity, "permissions": permissions})
 }
 
@@ -416,5 +418,6 @@ func TransferOwnership(c *gin.Context) {
 		apierror.Respond(c, http.StatusBadGateway, apierror.MediaServerError, "Sahiplik devredildi fakat tüm oturumlara uygulanamadı. Tekrar deneyin.")
 		return
 	}
+	roomChanged(room.RoomID, roomState)
 	c.JSON(http.StatusOK, gin.H{"identity": input.Identity, "role": models.RoleOwner, "caller_role": models.RoleParticipant})
 }

@@ -32,7 +32,11 @@ type waitingEntry struct {
 
 // pruneWaiting drops the room's requests whose requester stopped polling.
 func pruneWaiting(db *gorm.DB, roomID string) error {
-	return db.Where("room_id = ? AND last_polled_at < ?", roomID, time.Now().Add(-waitingExpiry)).Delete(&models.WaitingRequest{}).Error
+	result := db.Where("room_id = ? AND last_polled_at < ?", roomID, time.Now().Add(-waitingExpiry)).Delete(&models.WaitingRequest{})
+	if result.Error == nil && result.RowsAffected > 0 {
+		roomChanged(roomID, roomState)
+	}
+	return result.Error
 }
 
 // isAdmitted reports whether the user was let into the room before: they
@@ -62,6 +66,7 @@ func skipsWaitingRoom(roomID string, userID uint) (bool, error) {
 // rejection they get a new request.
 func requestToWait(roomID string, userID uint, name string) (string, error) {
 	var requestID string
+	created := false
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := pruneWaiting(tx, roomID); err != nil {
 			return err
@@ -81,8 +86,13 @@ func requestToWait(roomID string, userID uint, name string) (string, error) {
 			}
 		}
 		requestID = uuid.NewString()
+		created = true
 		return tx.Create(&models.WaitingRequest{RequestID: requestID, RoomID: roomID, UserID: userID, Name: name, Status: models.WaitingStatusWaiting, LastPolledAt: now}).Error
 	})
+	if err == nil && created {
+		// Whoever lets people in sees them at once.
+		roomChanged(roomID, roomState)
+	}
 	return requestID, err
 }
 
@@ -182,6 +192,7 @@ func UpdateMeetingSettings(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Ayar kaydedilemedi")
 		return
 	}
+	roomChanged(room.RoomID, roomState)
 	room.WaitingRoom = *input.WaitingRoom
 	respondState(c, room)
 }
@@ -272,6 +283,7 @@ func CancelWaitingRequest(c *gin.Context) {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "İstek silinemedi")
 		return
 	}
+	roomChanged(request.RoomID, roomState)
 	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }
 
@@ -304,6 +316,8 @@ func answerWaiting(c *gin.Context, admit bool) {
 			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "İstek yanıtlanamadı")
 			return
 		}
+		// The one waiting hears the answer at once.
+		roomChanged(room.RoomID, roomState)
 	}
 	respondState(c, room)
 }
