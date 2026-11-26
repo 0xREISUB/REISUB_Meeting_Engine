@@ -116,7 +116,7 @@ func mayUseChat(c *gin.Context, roomID string) bool {
 	if !room.WaitingRoom {
 		return true
 	}
-	direct, err := skipsWaitingRoom(roomID, c.MustGet("user").(models.User).ID)
+	direct, err := inRoomNow(roomID, c.MustGet("user").(models.User).ID)
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
 		return false

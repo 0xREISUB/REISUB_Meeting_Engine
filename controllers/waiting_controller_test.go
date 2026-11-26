@@ -98,7 +98,7 @@ func TestWaitingRoomSettingNeedsAdmitMembers(t *testing.T) {
 
 func TestWaitingRoomLetsSomeInDirectly(t *testing.T) {
 	r, f := permissionsTestRouter(t)
-	// 77 joins while the waiting room is off, so they count as admitted.
+	// 77 joins while the waiting room is off.
 	addMember(t, f, 77, "", time.Time{}, false)
 	if w := joinRequest(r, 77, "early"); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
@@ -107,10 +107,14 @@ func TestWaitingRoomLetsSomeInDirectly(t *testing.T) {
 	if w := settingsRequest(r, "owner-token", true); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
-	for _, userID := range []uint{11, modID, 77} {
+	for _, userID := range []uint{11, modID} {
 		if w := joinRequest(r, userID, "x"); w.Code != 200 || !json.Valid(w.Body.Bytes()) {
 			t.Fatalf("user %d had to wait: %d %s", userID, w.Code, w.Body.String())
 		}
+	}
+	// Having been in before is no way past it: 77 waits like anyone.
+	if w := joinRequest(r, 77, "early"); w.Code != http.StatusAccepted {
+		t.Fatalf("user 77 came straight back in: %d %s", w.Code, w.Body.String())
 	}
 	// Removed users are refused before the waiting room.
 	assertAPIError(t, joinRequest(r, 22, "x"), 403, apierror.RemovedFromRoom, "Bu toplantıdan çıkarıldınız ve tekrar katılamazsınız")
@@ -129,7 +133,8 @@ func TestWaitingRoomLetsSomeInDirectly(t *testing.T) {
 	if again := wait(t, r, granterID, "Ayşe K."); again != first {
 		t.Fatalf("second join got a new request %s, want %s", again, first)
 	}
-	if state := readState(t, stateRequest(r, "owner-token")); len(state.Waiting) != 1 || state.Waiting[0].Name != "Ayşe K." {
+	// 77 asked first, so is listed first.
+	if state := readState(t, stateRequest(r, "owner-token")); len(state.Waiting) != 2 || state.Waiting[0].Name != "early" || state.Waiting[1].Name != "Ayşe K." {
 		t.Fatalf("waiting list: %+v", state.Waiting)
 	}
 }
@@ -162,9 +167,27 @@ func TestWaitingRequestPermissionsAndAdmission(t *testing.T) {
 		admitted.Token == "" || admitted.Participant != "Mehmet" || admitted.Role != models.RoleParticipant || admitted.Permissions == nil || admitted.RoomID != "123-456-789" {
 		t.Fatal("admitted poll:", poll.Code, poll.Body.String())
 	}
-	// Admitted users are remembered: rejoining never waits again.
-	if w := joinRequest(r, 22, "Mehmet"); w.Code != 200 {
-		t.Fatal("admitted user had to wait again:", w.Code, w.Body.String())
+	// Just let in, they may use the chat.
+	chat := func() int {
+		return jsonRequest(r, http.MethodGet, "/rooms/123-456-789/messages", "guest-token", "").Code
+	}
+	if code := chat(); code != 200 {
+		t.Fatal("admitted user kept from the chat:", code)
+	}
+	// In the meeting, too, after their admission has gone.
+	database.DB.Where("user_id = ?", 22).Delete(&models.WaitingRequest{})
+	database.DB.Create(&models.MeetingPresence{RoomID: "123-456-789", UserID: 22})
+	if code := chat(); code != 200 {
+		t.Fatal("user in the meeting kept from the chat:", code)
+	}
+	// Once they leave, coming back means waiting again, and the chat waits
+	// with it.
+	database.DB.Where("user_id = ?", 22).Delete(&models.MeetingPresence{})
+	if code := chat(); code != http.StatusForbidden {
+		t.Fatal("user who left still reads the chat:", code)
+	}
+	if w := joinRequest(r, 22, "Mehmet"); w.Code != http.StatusAccepted {
+		t.Fatal("admitted user came straight back in:", w.Code, w.Body.String())
 	}
 }
 
@@ -260,4 +283,18 @@ func TestWaitingListOnlyForAdmitters(t *testing.T) {
 	}
 	// Someone still waiting cannot use the chat.
 	assertAPIError(t, moderationRequest(r, "/rooms/123-456-789/messages", tokenFor(granterID), `{"content":"hi"}`), 403, apierror.NotAdmitted, "Toplantıya henüz alınmadınız")
+}
+
+func TestStillInTheMeetingComesBackWithoutWaiting(t *testing.T) {
+	r, _ := waitingRoomRouter(t)
+	// 22 is in the meeting (LiveKit said so) when their connection drops.
+	database.DB.Create(&models.MeetingPresence{RoomID: "123-456-789", UserID: 22})
+	if w := joinRequest(r, 22, "Mehmet"); w.Code != 200 {
+		t.Fatal("dropped connection had to wait:", w.Code, w.Body.String())
+	}
+	// Gone from the meeting, they wait.
+	database.DB.Where("user_id = ?", 22).Delete(&models.MeetingPresence{})
+	if w := joinRequest(r, 22, "Mehmet"); w.Code != http.StatusAccepted {
+		t.Fatal("someone who left came straight back:", w.Code, w.Body.String())
+	}
 }

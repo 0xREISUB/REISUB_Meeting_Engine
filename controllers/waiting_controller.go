@@ -14,8 +14,8 @@ import (
 )
 
 // The waiting room. When it is on, POST /rooms/join answers 202 with a
-// request_id for everyone except the owner, holders of admit_members and
-// users admitted to the room before (they have a RoomMember row). The
+// request_id for everyone except the owner and holders of admit_members:
+// someone let in before waits again each time they come back. The
 // requester polls GET /waiting/:request_id until someone with admit_members
 // admits or rejects them. A request whose requester has not polled for
 // waitingExpiry is dropped, and all requests end with the room. Everything
@@ -39,8 +39,9 @@ func pruneWaiting(db *gorm.DB, roomID string) error {
 	return result.Error
 }
 
-// isAdmitted reports whether the user was let into the room before: they
-// created or joined it, or were admitted from the waiting room.
+// isAdmitted reports whether the user was in the room before: they created
+// or joined it, or were admitted from the waiting room. It lets nobody past
+// the waiting room; it only lets them watch the meeting's changes.
 func isAdmitted(roomID string, userID uint) (bool, error) {
 	var count int64
 	err := database.DB.Model(&models.RoomMember{}).Where("room_id = ? AND user_id = ?", roomID, userID).Count(&count).Error
@@ -48,17 +49,30 @@ func isAdmitted(roomID string, userID uint) (bool, error) {
 }
 
 // skipsWaitingRoom reports whether the user joins directly although the
-// waiting room is on: the owner (even while away), holders of
-// admit_members, and users admitted before.
+// waiting room is on: the owner (even while away) and holders of
+// admit_members. Everyone else waits, each time they join.
 func skipsWaitingRoom(roomID string, userID uint) (bool, error) {
 	row, err := roleRow(database.DB, roomID, userID)
 	if err != nil {
 		return false, err
 	}
-	if row != nil && row.Role == models.RoleOwner || rowAccess(row).has(models.PermissionAdmitMembers) {
-		return true, nil
+	return row != nil && row.Role == models.RoleOwner || rowAccess(row).has(models.PermissionAdmitMembers), nil
+}
+
+// inRoomNow reports whether the user may take part in the meeting while
+// the waiting room is on: they skip it, are in the meeting now, or were
+// just let in (their admitted request lasts until they are in, and then
+// waitingExpiry). Turning the waiting room on leaves those inside in.
+func inRoomNow(roomID string, userID uint) (bool, error) {
+	if direct, err := skipsWaitingRoom(roomID, userID); err != nil || direct {
+		return direct, err
 	}
-	return isAdmitted(roomID, userID)
+	var count int64
+	if err := database.DB.Model(&models.MeetingPresence{}).Where("room_id = ? AND user_id = ?", roomID, userID).Count(&count).Error; err != nil || count > 0 {
+		return count > 0, err
+	}
+	err := database.DB.Model(&models.WaitingRequest{}).Where("room_id = ? AND user_id = ? AND status = ?", roomID, userID, models.WaitingStatusAdmitted).Count(&count).Error
+	return count > 0, err
 }
 
 // requestToWait files (or refreshes) the user's waiting request and returns

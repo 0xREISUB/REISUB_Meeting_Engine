@@ -299,9 +299,10 @@ others became participants with every permission.
 ### Waiting room
 
 Off by default. While it is on, `POST /rooms/join` lets in directly only the
-owner (even while away), holders of `admit_members`, and users admitted to the
-room before (anyone who created or joined it, or was admitted, so reconnects
-and rejoins never wait). Everyone else gets
+owner (even while away), holders of `admit_members`, and whoever is still in
+the meeting (a dropped connection coming back) or was just let in. Someone who
+left waits again each time they come back, however often they were let in
+before; turning the waiting room on leaves those inside in. Everyone else gets
 `202 {"status":"waiting","request_id":"..."}`, under the name sent with the
 join; joining again while waiting returns the same `request_id`. Removed users
 still get `403 removed_from_room` first. Until let in, the chat answers

@@ -157,7 +157,9 @@ func JoinRoom(c *gin.Context) {
 	}
 	user := c.MustGet("user").(models.User)
 	if room.WaitingRoom {
-		direct, err := skipsWaitingRoom(room.RoomID, user.ID)
+		// Someone still in the meeting (their connection dropped) comes
+		// back; someone who left waits again.
+		direct, err := inRoomNow(room.RoomID, user.ID)
 		if err != nil {
 			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oda okunamadı")
 			return
