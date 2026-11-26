@@ -469,6 +469,26 @@ a private key. Put it on the server as `config/push/fcm-service-account.json`
 `FCM_CREDENTIALS_FILE=/push/fcm-service-account.json` in `config/stack.env`.
 Without it the backend runs as before, with push off.
 
+## Calls
+
+Calling a friend (`POST /chats/friend/:id/call`) or starting a team's meeting
+(`POST /teams/:id/meeting`) rings the people asked: the friend, or every
+member but the one who started it. Each gets a realtime `{"type":"call",
+"call":{...}}` and a push (`type=call`: `call_id`, `room_id`, `caller`,
+`title`, `kind`, `target_id`, `ends_at`, `secret`), and their phones ring for
+45 seconds. The invitation message stays in the chat as a record, without a
+message push of its own.
+
+- `POST /calls/:call_id/answer` and `POST /calls/:call_id/decline` take the
+  session, or `{"secret":...}`: a secret sent only to that person, with which
+  a phone answers from its notification without the app. Their other devices
+  stop ringing (`call_end`); a friend who declines is told to the caller
+  (`call_declined`).
+- When the time is up, or the caller leaves the meeting first, the call ends:
+  whoever it still rang missed it (`call_end` with `missed`), and a friend's
+  caller hears `call_unanswered`. Calls still ringing when the server stops
+  end at their time after it starts again.
+
 ## Social: profiles, friends and teams
 
 Accounts (not guests: `account_required`, 403) have a profile, friends and
@@ -700,6 +720,7 @@ the session token is missing or expired.
 | `team_full` | The team has 50 members (409) |
 | `invalid_image` | Profile picture missing, or not a JPEG or PNG |
 | `image_too_large` | Profile picture over 8 MB or 40 megapixels (413) |
+| `call_not_found` | No such call rings this user, or a wrong call secret (404) |
 
 ## Development
 

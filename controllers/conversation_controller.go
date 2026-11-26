@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -142,9 +143,18 @@ func CallFriend(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := inviteToMeeting(conversation, user.ID, room.RoomID); err != nil {
+	invited, err := inviteToMeeting(conversation, user.ID, room.RoomID)
+	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Davet gönderilemedi")
 		return
+	}
+	// The friend's phone rings.
+	if invited {
+		friendID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+		place := callPlace{kind: "friend", targetID: user.ID, title: user.Name()}
+		if err := startCall(user, room.RoomID, conversation, place, []uint{uint(friendID)}); err != nil {
+			log.Printf("warning: could not ring user %d: %v", friendID, err)
+		}
 	}
 	c.JSON(http.StatusCreated, gin.H{"room_id": room.RoomID})
 }

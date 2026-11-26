@@ -133,6 +133,8 @@ const (
 	InvalidImage Code = "invalid_image"
 	// ImageTooLarge: the profile picture is over 8 MB or too many pixels.
 	ImageTooLarge Code = "image_too_large"
+	// CallNotFound: no such call rings this user (or the secret is wrong).
+	CallNotFound Code = "call_not_found"
 )
 
 type Body struct {

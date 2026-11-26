@@ -136,6 +136,8 @@ type realtimeEvent struct {
 	// again in it (roomChat or roomState).
 	Room string `json:"room,omitempty"`
 	What string `json:"what,omitempty"`
+	// Call, for "call", "call_end", "call_declined" and "call_unanswered".
+	Call *callEvent `json:"call,omitempty"`
 }
 
 // socialChanged tells the users their social overview changed: a friend

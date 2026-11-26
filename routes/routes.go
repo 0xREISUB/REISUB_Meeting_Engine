@@ -99,6 +99,11 @@ func SetupRoutes(r *gin.Engine) {
 	// message, not in the URL.
 	r.GET("/ws", controllers.RealtimeSocket)
 
+	// Answering a call: with the session, or from a phone's notification
+	// with the call's secret for that person.
+	r.POST("/calls/:call_id/answer", controllers.AnswerCall)
+	r.POST("/calls/:call_id/decline", controllers.DeclineCall)
+
 	// Profile pictures; public, under names nobody can guess.
 	r.GET("/avatars/:name", controllers.ServeAvatar)
 	r.HEAD("/avatars/:name", controllers.ServeAvatar)

@@ -20,6 +20,9 @@ func main() {
 	database.ConnectDB()
 	controllers.StartGuestCleanup()
 	controllers.StartPush()
+	if err := controllers.ScheduleCallEnds(); err != nil {
+		log.Printf("warning: could not schedule ringing calls: %v", err)
+	}
 	controllers.StartRoomCleanup()
 	if err := controllers.ScheduleRoomEnds(); err != nil {
 		log.Fatal("Toplantı süre sınırları zamanlanamadı: ", err)

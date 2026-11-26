@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -492,9 +493,17 @@ func StartTeamMeeting(c *gin.Context) {
 	}
 	// Nobody there yet: the meeting starts now, and the team hears of it.
 	if !live {
-		if err := inviteToMeeting(teamConversation(team.ID), user.ID, roomID); err != nil {
+		invited, err := inviteToMeeting(teamConversation(team.ID), user.ID, roomID)
+		if err != nil {
 			apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Davet gönderilemedi")
 			return
+		}
+		// The team's phones ring.
+		if invited {
+			place := callPlace{kind: "team", targetID: team.ID, title: team.Name}
+			if err := startCall(user, roomID, teamConversation(team.ID), place, teamMemberIDs(team.ID)); err != nil {
+				log.Printf("warning: could not ring team %d: %v", team.ID, err)
+			}
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"room_id": roomID, "started": !live})
@@ -522,20 +531,22 @@ const inviteRepeatWindow = 2 * time.Minute
 
 // inviteToMeeting leaves a call message for the room in the conversation,
 // unless one was left there lately.
-func inviteToMeeting(conversation string, senderID uint, roomID string) error {
+// It answers whether it invited now; a repeat within inviteRepeatWindow
+// does not.
+func inviteToMeeting(conversation string, senderID uint, roomID string) (bool, error) {
 	var recent int64
 	if err := database.DB.Model(&models.SocialMessage{}).
 		Where("conversation = ? AND room_id = ? AND created_at > ?", conversation, roomID, time.Now().Add(-inviteRepeatWindow)).
 		Count(&recent).Error; err != nil {
-		return err
+		return false, err
 	}
 	if recent > 0 {
-		return nil
+		return false, nil
 	}
 	invite := models.SocialMessage{Conversation: conversation, SenderID: senderID, RoomID: roomID}
 	if err := database.DB.Create(&invite).Error; err != nil {
-		return err
+		return false, err
 	}
 	publishMessage(invite)
-	return nil
+	return true, nil
 }

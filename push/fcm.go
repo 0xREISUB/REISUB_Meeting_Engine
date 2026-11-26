@@ -25,6 +25,9 @@ var ErrUnregistered = errors.New("push: device token no longer registered")
 type Message struct {
 	Token string
 	Data  map[string]string
+	// TTL is how long FCM keeps it for a phone that is off; zero means an
+	// hour.
+	TTL time.Duration
 }
 
 // Sender delivers messages.
@@ -71,12 +74,16 @@ const ttl = time.Hour
 
 // Send delivers m at high priority, so it wakes a sleeping phone.
 func (f *FCM) Send(ctx context.Context, m Message) error {
+	keep := m.TTL
+	if keep <= 0 {
+		keep = ttl
+	}
 	body, err := json.Marshal(map[string]any{"message": map[string]any{
 		"token": m.Token,
 		"data":  m.Data,
 		"android": map[string]any{
 			"priority": "high",
-			"ttl":      fmt.Sprintf("%ds", int(ttl.Seconds())),
+			"ttl":      fmt.Sprintf("%ds", int(keep.Seconds())),
 		},
 	}})
 	if err != nil {

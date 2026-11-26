@@ -106,13 +106,13 @@ func TestANewMessageReachesTheOtherSidesPhones(t *testing.T) {
 	}
 	fake.sent = nil
 	fake.mu.Unlock()
-	// A call says so.
+	// A call rings instead of sending a message notice.
 	if w := jsonRequest(r, http.MethodPost, "/chats/friend/2/call", "alice", ""); w.Code >= 300 {
 		t.Fatal("call:", w.Code, w.Body.String())
 	}
 	pushSends.Wait()
 	fake.mu.Lock()
-	if len(fake.sent) != 1 || fake.sent[0].Data["invite"] != "1" {
+	if len(fake.sent) != 1 || fake.sent[0].Data["type"] != "call" {
 		t.Fatalf("call pushed %+v", fake.sent)
 	}
 	fake.sent = nil

@@ -106,38 +106,42 @@ const pushContentLimit = 500
 // who wrote, where, and what (its start). The text passes through Google
 // (FCM) on its way, encrypted in transit.
 func pushNewMessage(userID uint, m notificationMessage) {
-	if pushSender == nil {
-		return
-	}
-	var devices []models.PushDevice
-	now := time.Now()
-	err := database.DB.Model(&models.PushDevice{}).
-		Joins("JOIN sessions ON sessions.id = push_devices.session_id").
-		Where("push_devices.user_id = ? AND sessions.user_id = push_devices.user_id AND (sessions.expires_at IS NULL OR sessions.expires_at > ?)", userID, now).
-		Find(&devices).Error
-	if err != nil {
-		log.Printf("warning: could not read push devices of user %d: %v", userID, err)
-		return
-	}
-	invite := ""
+	// An invitation rings as a call instead (see startCall).
 	if m.RoomID != "" {
-		invite = "1"
+		return
 	}
 	content := m.Content
 	if runes := []rune(content); len(runes) > pushContentLimit {
 		content = string(runes[:pushContentLimit]) + "…"
 	}
+	pushToUser(userID, map[string]string{
+		"content":    content,
+		"type":       "message",
+		"kind":       m.Kind,
+		"target_id":  strconv.FormatUint(uint64(m.TargetID), 10),
+		"title":      m.Title,
+		"sender":     m.Sender,
+		"message_id": strconv.FormatUint(uint64(m.ID), 10),
+	}, 0)
+}
+
+// pushToUser sends data to the user's phones whose session has not ended;
+// ttl zero keeps it an hour for a phone that is off.
+func pushToUser(userID uint, data map[string]string, ttl time.Duration) {
+	if pushSender == nil {
+		return
+	}
+	var devices []models.PushDevice
+	err := database.DB.Model(&models.PushDevice{}).
+		Joins("JOIN sessions ON sessions.id = push_devices.session_id").
+		Where("push_devices.user_id = ? AND sessions.user_id = push_devices.user_id AND (sessions.expires_at IS NULL OR sessions.expires_at > ?)", userID, time.Now()).
+		Find(&devices).Error
+	if err != nil {
+		log.Printf("warning: could not read push devices of user %d: %v", userID, err)
+		return
+	}
 	for _, d := range devices {
-		enqueuePush(push.Message{Token: d.Token, Data: map[string]string{
-			"content":    content,
-			"type":       "message",
-			"kind":       m.Kind,
-			"target_id":  strconv.FormatUint(uint64(m.TargetID), 10),
-			"title":      m.Title,
-			"sender":     m.Sender,
-			"message_id": strconv.FormatUint(uint64(m.ID), 10),
-			"invite":     invite,
-		}})
+		enqueuePush(push.Message{Token: d.Token, Data: data, TTL: ttl})
 	}
 }
 

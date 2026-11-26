@@ -136,7 +136,7 @@ func migrateTables(db *gorm.DB) error {
 
 // socialModels are the tables behind profiles, friends, teams and their
 // chats, and behind signed-in devices and their push notifications.
-var socialModels = []any{&models.Friendship{}, &models.Team{}, &models.TeamMember{}, &models.SocialMessage{}, &models.MeetingPresence{}, &models.ConversationRead{}, &models.Session{}, &models.PushDevice{}}
+var socialModels = []any{&models.Friendship{}, &models.Team{}, &models.TeamMember{}, &models.SocialMessage{}, &models.MeetingPresence{}, &models.ConversationRead{}, &models.Session{}, &models.PushDevice{}, &models.Call{}, &models.CallInvitee{}}
 
 // legacyModerator is the removed "moderator" role. Moderators could do what
 // these permissions allow (admit_members because they could already manage
