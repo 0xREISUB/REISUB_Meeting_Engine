@@ -65,8 +65,8 @@ func TestWebBuildIsServedWithCacheHeaders(t *testing.T) {
 		"/version.json":              {"{}", "no-cache"},
 		"/manifest.json":             {"{}", "no-cache"},
 		"/favicon.png":               {"png", "no-cache"},
-		"/assets/AssetManifest.bin":  {"assets", "public, max-age=3600"},
-		"/canvaskit/canvaskit.wasm":  {"wasm", "public, max-age=3600"},
+		"/assets/AssetManifest.bin":  {"assets", "no-cache"},
+		"/canvaskit/canvaskit.wasm":  {"wasm", "no-cache"},
 		"/invite/":                   {"invite-page", "no-cache"},
 		"/invite/?room=123-456-789":  {"invite-page", "no-cache"},
 	} {
@@ -74,6 +74,18 @@ func TestWebBuildIsServedWithCacheHeaders(t *testing.T) {
 		if w.Code != 200 || w.Body.String() != want.body || w.Header().Get("Cache-Control") != want.cache {
 			t.Errorf("GET %s = %d %q cache %q; want %q cache %q", target, w.Code, w.Body.String(), w.Header().Get("Cache-Control"), want.body, want.cache)
 		}
+	}
+}
+
+func TestUnchangedWebFilesAreNotSentAgain(t *testing.T) {
+	r := webRouter(t)
+	first := get(r, http.MethodGet, "/assets/AssetManifest.bin")
+	req := httptest.NewRequest(http.MethodGet, "/assets/AssetManifest.bin", nil)
+	req.Header.Set("If-Modified-Since", first.Header().Get("Last-Modified"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotModified || w.Body.Len() != 0 {
+		t.Fatalf("revalidation = %d with %d bytes", w.Code, w.Body.Len())
 	}
 }
 

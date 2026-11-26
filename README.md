@@ -165,8 +165,11 @@ keeps serving the same API for the mobile apps.
   output of `flutter build web --release`. Files are served only for GET/HEAD
   requests that no API route matches, so the API is never shadowed. Without
   `WEB_DIR` the backend serves no web files.
-- Caching: everything is `Cache-Control: no-cache` (revalidated on each load)
-  except `assets/` and `canvaskit/` (`public, max-age=3600`).
+- Caching: everything is `Cache-Control: no-cache`, revalidated on each load
+  (an unchanged file is a 304 without its body). Flutter's file names stay
+  the same between builds, `assets/` and `canvaskit/` included, so caching
+  them for a while would mix an old icon font (cut down to the icons its
+  build used) or engine with new code after a deploy.
 - `GET /j/<room_id>` serves `invite/index.html` without authentication. The
   page reads the code from the path and offers to join in the browser
   (`/?room=<room_id>`) or download the app.

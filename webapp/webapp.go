@@ -18,10 +18,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// cachedFor is the Cache-Control for assets/ and canvaskit/. Their names are
-// not content-hashed, so keep it short; Last-Modified revalidation follows.
-const cachedFor = "public, max-age=3600"
-
 // Handler serves files from Dir. A zero Dir disables the web app.
 type Handler struct {
 	Dir string
@@ -71,17 +67,11 @@ func (h Handler) serve(c *gin.Context, urlPath string) {
 		return
 	}
 	defer file.Close()
-	c.Header("Cache-Control", cacheControl(clean))
+	// Every file is checked again before use: Flutter's file names stay the
+	// same from build to build (the icon font, cut down to the icons a
+	// build uses, among them), so a cached one could belong to an older
+	// build and lack what the new code needs. An unchanged file costs a 304
+	// without its body.
+	c.Header("Cache-Control", "no-cache")
 	http.ServeContent(c.Writer, c.Request, info.Name(), info.ModTime(), file)
-}
-
-// cacheControl makes everything revalidate except the large assets/ and
-// canvaskit/ trees. index.html, flutter_bootstrap.js, main.dart.js,
-// flutter_service_worker.js, version.json and manifest.json must never be
-// served stale after a deploy.
-func cacheControl(clean string) string {
-	if strings.HasPrefix(clean, "/assets/") || strings.HasPrefix(clean, "/canvaskit/") {
-		return cachedFor
-	}
-	return "no-cache"
 }
