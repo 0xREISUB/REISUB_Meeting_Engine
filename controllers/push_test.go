@@ -183,3 +183,32 @@ func TestAPhoneTokenBelongsToOneSession(t *testing.T) {
 		t.Fatal("ios:", w.Code)
 	}
 }
+
+func TestAPhoneByInstallationIDGetsItsPushThatWay(t *testing.T) {
+	fake, r := pushRouter(t)
+	befriend(t, r, "alice", "bob")
+	// A newer app registers its Firebase Installation ID; an older one its
+	// registration token.
+	if w := jsonRequest(r, http.MethodPut, "/me/push-device", "bob", `{"token":"fid-bob","platform":"android","kind":"fid"}`); w.Code != http.StatusNoContent {
+		t.Fatal("register fid:", w.Code, w.Body.String())
+	}
+	registerPhone(t, r, "alice", "token-alice")
+	if w := jsonRequest(r, http.MethodPut, "/me/push-device", "alice", `{"token":"x","platform":"android","kind":"other"}`); w.Code != http.StatusBadRequest {
+		t.Fatal("unknown kind:", w.Code)
+	}
+	jsonRequest(r, http.MethodPost, "/chats/friend/2/messages", "alice", `{"content":"selam"}`)
+	jsonRequest(r, http.MethodPost, "/chats/friend/1/messages", "bob", `{"content":"merhaba"}`)
+	pushSends.Wait()
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	got := map[string]bool{}
+	for _, m := range fake.sent {
+		got[m.Token] = m.FID
+	}
+	if fid, ok := got["fid-bob"]; !ok || !fid {
+		t.Fatalf("bob's phone: %+v", fake.sent)
+	}
+	if fid, ok := got["token-alice"]; !ok || fid {
+		t.Fatalf("alice's phone: %+v", fake.sent)
+	}
+}

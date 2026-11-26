@@ -23,7 +23,10 @@ var ErrUnregistered = errors.New("push: device token no longer registered")
 // Message is one notification to one device. Data is all it carries; the
 // app builds what it shows from it.
 type Message struct {
+	// Token is where it goes: an installation ID when FID is set, else
+	// a registration token.
 	Token string
+	FID   bool
 	Data  map[string]string
 	// TTL is how long FCM keeps it for a phone that is off; zero means an
 	// hour.
@@ -78,9 +81,13 @@ func (f *FCM) Send(ctx context.Context, m Message) error {
 	if keep <= 0 {
 		keep = ttl
 	}
+	target := "token"
+	if m.FID {
+		target = "fid"
+	}
 	body, err := json.Marshal(map[string]any{"message": map[string]any{
-		"token": m.Token,
-		"data":  m.Data,
+		target: m.Token,
+		"data": m.Data,
 		"android": map[string]any{
 			"priority": "high",
 			"ttl":      fmt.Sprintf("%ds", int(keep.Seconds())),

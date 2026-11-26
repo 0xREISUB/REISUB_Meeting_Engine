@@ -30,6 +30,14 @@ func TestSendAsksFCMAtHighPriorityWithDataOnly(t *testing.T) {
 		t.Fatalf("sent %+v", got)
 	}
 
+	// An installation ID goes in "fid".
+	if err := f.Send(context.Background(), Message{Token: "install-1", FID: true, Data: map[string]string{"type": "message"}}); err != nil {
+		t.Fatal(err)
+	}
+	if m := got["message"]; m["fid"] != "install-1" || m["token"] != nil {
+		t.Fatalf("sent %+v", got)
+	}
+
 	// A dead token, either way FCM says it.
 	answer, body = http.StatusNotFound, `{}`
 	if err := f.Send(context.Background(), Message{Token: "gone"}); !errors.Is(err, ErrUnregistered) {

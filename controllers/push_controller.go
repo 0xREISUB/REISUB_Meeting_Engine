@@ -141,7 +141,7 @@ func pushToUser(userID uint, data map[string]string, ttl time.Duration) {
 		return
 	}
 	for _, d := range devices {
-		enqueuePush(push.Message{Token: d.Token, Data: data, TTL: ttl})
+		enqueuePush(push.Message{Token: d.Token, FID: d.Kind == "fid", Data: data, TTL: ttl})
 	}
 }
 
@@ -151,8 +151,15 @@ func PutPushDevice(c *gin.Context) {
 	var input struct {
 		Token    string `json:"token"`
 		Platform string `json:"platform"`
+		// Kind is "fid" for a Firebase Installation ID; empty or "token"
+		// for an FCM registration token, from older apps.
+		Kind string `json:"kind"`
 	}
-	if c.ShouldBindJSON(&input) != nil || strings.TrimSpace(input.Token) == "" || len(input.Token) > 4096 || input.Platform != "android" {
+	bound := c.ShouldBindJSON(&input) == nil
+	if input.Kind == "" {
+		input.Kind = "token"
+	}
+	if !bound || strings.TrimSpace(input.Token) == "" || len(input.Token) > 4096 || input.Platform != "android" || (input.Kind != "token" && input.Kind != "fid") {
 		apierror.Respond(c, http.StatusBadRequest, apierror.InvalidRequest, "Geçersiz cihaz")
 		return
 	}
@@ -163,8 +170,8 @@ func PutPushDevice(c *gin.Context) {
 	if err == nil {
 		err = database.DB.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "session_id"}},
-			DoUpdates: clause.AssignmentColumns([]string{"token", "user_id", "platform", "updated_at"}),
-		}).Create(&models.PushDevice{SessionID: session.ID, UserID: user.ID, Token: token, Platform: input.Platform}).Error
+			DoUpdates: clause.AssignmentColumns([]string{"token", "kind", "user_id", "platform", "updated_at"}),
+		}).Create(&models.PushDevice{SessionID: session.ID, UserID: user.ID, Token: token, Kind: input.Kind, Platform: input.Platform}).Error
 	}
 	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Cihaz kaydedilemedi")

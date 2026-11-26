@@ -25,6 +25,9 @@ type PushDevice struct {
 	SessionID uint   `gorm:"not null;uniqueIndex"`
 	UserID    uint   `gorm:"not null;index"`
 	Token     string `gorm:"not null;uniqueIndex"`
+	// Kind is what Token is: "fid", a Firebase Installation ID (apps from
+	// now on), or "token", an FCM registration token (older apps).
+	Kind string `gorm:"not null;default:'token'"`
 	// Platform is "android"; the only one with push for now.
 	Platform  string `gorm:"not null"`
 	UpdatedAt time.Time
