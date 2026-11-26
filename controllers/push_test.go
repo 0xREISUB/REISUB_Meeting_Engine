@@ -80,7 +80,7 @@ func TestANewMessageReachesTheOtherSidesPhones(t *testing.T) {
 	befriend(t, r, "alice", "bob")
 	registerPhone(t, r, "bob", "bob-phone")
 	registerPhone(t, r, "alice", "alice-phone")
-	if w := jsonRequest(r, http.MethodPost, "/chats/friend/2/messages", "alice", `{"content":"gizli metin"}`); w.Code != http.StatusCreated {
+	if w := jsonRequest(r, http.MethodPost, "/chats/friend/2/messages", "alice", `{"content":"akşam müsait misin?"}`); w.Code != http.StatusCreated {
 		t.Fatal("send:", w.Code, w.Body.String())
 	}
 	pushSends.Wait()
@@ -93,15 +93,19 @@ func TestANewMessageReachesTheOtherSidesPhones(t *testing.T) {
 		t.Fatalf("sent %+v", sent)
 	}
 	data := sent[0].Data
-	if data["type"] != "message" || data["kind"] != "friend" || data["target_id"] != "1" || data["title"] != "alice" || data["sender"] != "alice" || data["message_id"] == "" || data["invite"] != "" {
+	// Who, where and what, so the phone shows the message itself.
+	if data["type"] != "message" || data["kind"] != "friend" || data["target_id"] != "1" || data["title"] != "alice" || data["sender"] != "alice" || data["message_id"] == "" || data["invite"] != "" || data["content"] != "akşam müsait misin?" {
 		t.Fatalf("data %+v", data)
 	}
-	// What was written never goes to Google.
-	for _, value := range data {
-		if strings.Contains(value, "gizli") {
-			t.Fatal("the message text was pushed")
-		}
+	// A long message sends its start.
+	jsonRequest(r, http.MethodPost, "/chats/friend/2/messages", "alice", `{"content":"`+strings.Repeat("ç", 900)+`"}`)
+	pushSends.Wait()
+	fake.mu.Lock()
+	if got := []rune(fake.sent[0].Data["content"]); len(got) != pushContentLimit+1 || got[pushContentLimit] != '…' {
+		t.Fatalf("long message pushed as %d runes", len(got))
 	}
+	fake.sent = nil
+	fake.mu.Unlock()
 	// A call says so.
 	if w := jsonRequest(r, http.MethodPost, "/chats/friend/2/call", "alice", ""); w.Code >= 300 {
 		t.Fatal("call:", w.Code, w.Body.String())

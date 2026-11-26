@@ -457,9 +457,10 @@ registers its FCM token for its session with `PUT /me/push-device`
 /me/push-device`; signing out ends it too. Only devices of sessions that have
 not ended get pushes, never the sender's.
 
-A push carries who and where (`type`, `kind`, `target_id`, `title`,
-`sender`, `message_id`, `invite`), never what was written: the text does not
-pass through Google. Tokens FCM no longer knows are forgotten.
+A push carries who wrote, where and what: `type`, `kind`, `target_id`,
+`title`, `sender`, `message_id`, `invite` and `content` (the message, its
+first 500 characters for a longer one). The text passes through Google (FCM)
+on its way to the phone, encrypted in transit. Tokens FCM no longer knows are forgotten.
 
 To turn it on, create a Firebase project, add the Android app
 (`xyz.reisub.meeting`), and from Project settings → Service accounts generate

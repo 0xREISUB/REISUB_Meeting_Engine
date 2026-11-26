@@ -98,9 +98,13 @@ func enqueuePush(m push.Message) {
 	}
 }
 
-// pushNewMessage tells the user's signed-in phones about a new message.
-// It carries who and where, never what was written: the text does not
-// pass through Google.
+// pushContentLimit keeps a push well inside FCM's 4 KB of data: a longer
+// message shows its start.
+const pushContentLimit = 500
+
+// pushNewMessage tells the user's signed-in phones about a new message:
+// who wrote, where, and what (its start). The text passes through Google
+// (FCM) on its way, encrypted in transit.
 func pushNewMessage(userID uint, m notificationMessage) {
 	if pushSender == nil {
 		return
@@ -119,8 +123,13 @@ func pushNewMessage(userID uint, m notificationMessage) {
 	if m.RoomID != "" {
 		invite = "1"
 	}
+	content := m.Content
+	if runes := []rune(content); len(runes) > pushContentLimit {
+		content = string(runes[:pushContentLimit]) + "…"
+	}
 	for _, d := range devices {
 		enqueuePush(push.Message{Token: d.Token, Data: map[string]string{
+			"content":    content,
 			"type":       "message",
 			"kind":       m.Kind,
 			"target_id":  strconv.FormatUint(uint64(m.TargetID), 10),
