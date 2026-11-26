@@ -1,8 +1,6 @@
 package controllers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
@@ -42,13 +40,6 @@ func bindCredentials(c *gin.Context) (credentials, bool) {
 	}
 	input.Nick = strings.TrimSpace(input.Nick)
 	return input, input.Nick != ""
-}
-
-func generateToken() string {
-	bytes := make([]byte, 32)
-	// crypto/rand.Read never returns an error on supported platforms.
-	_, _ = rand.Read(bytes)
-	return hex.EncodeToString(bytes)
 }
 
 func Register(c *gin.Context) {
@@ -117,9 +108,10 @@ func Login(c *gin.Context) {
 	loginFailures.Reset(key)
 	user := users[0]
 
-	newToken := generateToken()
+	// One more signed-in device; the others stay signed in.
 	expires := time.Now().Add(middleware.AccountTokenTTL())
-	if err := database.DB.Model(&user).Updates(map[string]any{"token_hash": models.HashToken(newToken), "token_expires_at": expires}).Error; err != nil {
+	newToken, err := middleware.NewSession(database.DB, user.ID, &expires)
+	if err != nil {
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Oturum başlatılamadı")
 		return
 	}
@@ -133,14 +125,26 @@ func Logout(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if err := database.DB.Where("token_hash = ?", models.HashToken(token)).First(&user).Error; err != nil {
+	// Only this device signs out; the user's others stay signed in.
+	hash := models.HashToken(token)
+	var sessions []uint
+	if err := database.DB.Model(&models.Session{}).Where("token_hash = ?", hash).Pluck("id", &sessions).Error; err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Çıkış yapılamadı")
+		return
+	}
+	// A session from before users could have several, never used since.
+	legacy := database.DB.Model(&models.User{}).Where("token_hash = ?", hash).UpdateColumn("token_hash", "")
+	if legacy.Error != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Çıkış yapılamadı")
+		return
+	}
+	if len(sessions) == 0 && legacy.RowsAffected == 0 {
 		apierror.Respond(c, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
 		return
 	}
-
-	// No session any more: no hash matches it. (A hash is never empty, so
-	// the empty value matches no token either.)
-	database.DB.Model(&user).Update("token_hash", "")
+	if err := middleware.EndSessions(database.DB, sessions); err != nil {
+		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Çıkış yapılamadı")
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "Başarıyla çıkış yapıldı"})
 }

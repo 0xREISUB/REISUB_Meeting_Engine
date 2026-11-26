@@ -10,9 +10,11 @@ import (
 
 	"reisub-backend/apierror"
 	"reisub-backend/database"
+	"reisub-backend/middleware"
 	"reisub-backend/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // defaultGuestTokenTTL is how long a guest token stays valid (GUEST_TOKEN_TTL).
@@ -41,16 +43,23 @@ func CreateGuest(c *gin.Context) {
 	_, _ = rand.Read(suffix)
 	now := time.Now()
 	expires := now.Add(envDuration("GUEST_TOKEN_TTL", defaultGuestTokenTTL))
-	token := generateToken()
 	user := models.User{
 		Nick:           models.GuestNickPrefix + hex.EncodeToString(suffix),
 		Password:       "",
-		TokenHash:      models.HashToken(token),
 		IsGuest:        true,
 		TokenExpiresAt: &expires,
 		LastSeenAt:     &now,
 	}
-	if err := database.DB.Create(&user).Error; err != nil {
+	var token string
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+		var err error
+		token, err = middleware.NewSession(tx, user.ID, &expires)
+		return err
+	})
+	if err != nil {
 		// Never 404/405: clients read those as "this server has no guests".
 		apierror.Respond(c, http.StatusInternalServerError, apierror.Internal, "Misafir oturumu oluşturulamadı")
 		return

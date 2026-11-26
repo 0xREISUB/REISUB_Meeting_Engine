@@ -435,12 +435,38 @@ An account session lasts `ACCOUNT_TOKEN_TTL` (default 720h, 30 days) unused:
 using it moves its end on, at most once a day, so only sessions left alone
 that long end. Guest sessions keep their own fixed `GUEST_TOKEN_TTL`.
 
+A user may be signed in on several devices at once: each `/login` starts one
+more session (table `sessions`) and leaves the others; `/logout` ends only the
+one it is called with. Beyond 10 sessions the oldest end. Sessions from before
+this (kept on the user, `users.token_hash`) move to `sessions` on their first
+use, so nobody is signed out.
+
 Session tokens (from `/login` and `/guest`) are 256 random bits. The database
-keeps only their SHA-256 (`users.token_hash`), so a copy of it holds no usable
-session; a request's token is hashed and looked up. Passwords are bcrypt
+keeps only their SHA-256 (`sessions.token_hash`), so a copy of it holds no
+usable session; a request's token is hashed and looked up. Passwords are bcrypt
 hashes. Databases from before this kept tokens plain: on first start the
 backend hashes them in place (sessions stay valid), drops the plain column and,
 on SQLite, rewrites the file so no old token is left in it.
+
+## Push notifications
+
+Phones get a notification for a new message or call while the app is in the
+background or closed, through Firebase Cloud Messaging (FCM). The app
+registers its FCM token for its session with `PUT /me/push-device`
+(`{"token":...,"platform":"android"}`) and stops with `DELETE
+/me/push-device`; signing out ends it too. Only devices of sessions that have
+not ended get pushes, never the sender's.
+
+A push carries who and where (`type`, `kind`, `target_id`, `title`,
+`sender`, `message_id`, `invite`), never what was written: the text does not
+pass through Google. Tokens FCM no longer knows are forgotten.
+
+To turn it on, create a Firebase project, add the Android app
+(`xyz.reisub.meeting`), and from Project settings → Service accounts generate
+a private key. Put it on the server as `config/push/fcm-service-account.json`
+(`chmod 600`; git ignores the folder) and set
+`FCM_CREDENTIALS_FILE=/push/fcm-service-account.json` in `config/stack.env`.
+Without it the backend runs as before, with push off.
 
 ## Social: profiles, friends and teams
 

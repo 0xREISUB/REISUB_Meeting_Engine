@@ -85,7 +85,7 @@ func RealtimeSocket(c *gin.Context) {
 		conn.Close(closeAuthRequired, "auth required")
 		return
 	}
-	user, ok := middleware.UserForToken(strings.TrimSpace(hello.Token))
+	user, _, ok := middleware.UserForToken(strings.TrimSpace(hello.Token))
 	if !ok {
 		conn.Close(closeInvalidToken, "invalid token")
 		return
@@ -269,11 +269,15 @@ func publishMessage(message models.SocialMessage) {
 		if err != nil || len(formatted) == 0 {
 			continue
 		}
-		hub.send(r.userID, realtimeEvent{Type: "message", Message: &notificationMessage{
+		notification := notificationMessage{
 			socialMessageResponse: formatted[0],
 			Kind:                  r.info.Kind,
 			TargetID:              r.info.TargetID,
 			Title:                 r.info.Title,
-		}})
+		}
+		hub.send(r.userID, realtimeEvent{Type: "message", Message: &notification})
+		if r.userID != message.SenderID {
+			pushNewMessage(r.userID, notification)
+		}
 	}
 }

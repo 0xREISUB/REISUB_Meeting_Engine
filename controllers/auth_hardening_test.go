@@ -61,36 +61,39 @@ func TestAccountSessionsEndWhenLeftUnused(t *testing.T) {
 	w := jsonRequest(r, http.MethodPost, "/login", "", `{"nick":"alice","password":"right"}`)
 	var body struct{ Token string }
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	read := func() models.User {
-		var user models.User
-		database.DB.Where("nick = ?", "alice").First(&user)
-		return user
+	read := func() models.Session {
+		var session models.Session
+		database.DB.Where("token_hash = ?", models.HashToken(body.Token)).First(&session)
+		return session
+	}
+	setEnd := func(end any) {
+		database.DB.Model(&models.Session{}).Where("token_hash = ?", models.HashToken(body.Token)).UpdateColumn("expires_at", end)
 	}
 	// A login lasts AccountTokenTTL.
-	expires := read().TokenExpiresAt
+	expires := read().ExpiresAt
 	if expires == nil || time.Until(*expires) < middleware.AccountTokenTTL()-time.Minute {
 		t.Fatalf("login set the end to %v", expires)
 	}
 
 	// In use, it moves on: an end near is pushed back.
 	soon := time.Now().Add(time.Hour)
-	database.DB.Model(&models.User{}).Where("nick = ?", "alice").UpdateColumn("token_expires_at", soon)
+	setEnd(soon)
 	if w := jsonRequest(r, http.MethodGet, "/me", body.Token, ""); w.Code != http.StatusNoContent {
 		t.Fatalf("in use: %d", w.Code)
 	}
-	if moved := read().TokenExpiresAt; moved == nil || time.Until(*moved) < middleware.AccountTokenTTL()-time.Minute {
+	if moved := read().ExpiresAt; moved == nil || time.Until(*moved) < middleware.AccountTokenTTL()-time.Minute {
 		t.Fatalf("not moved on: %v", moved)
 	}
 
 	// A session from before sessions ended gets an end on its next use.
-	database.DB.Model(&models.User{}).Where("nick = ?", "alice").UpdateColumn("token_expires_at", nil)
+	setEnd(nil)
 	jsonRequest(r, http.MethodGet, "/me", body.Token, "")
-	if read().TokenExpiresAt == nil {
+	if read().ExpiresAt == nil {
 		t.Fatal("an old session got no end")
 	}
 
 	// Past its end, it is over.
-	database.DB.Model(&models.User{}).Where("nick = ?", "alice").UpdateColumn("token_expires_at", time.Now().Add(-time.Minute))
+	setEnd(time.Now().Add(-time.Minute))
 	w = jsonRequest(r, http.MethodGet, "/me", body.Token, "")
 	assertAPIError(t, w, http.StatusUnauthorized, apierror.InvalidToken, "Geçersiz token")
 }

@@ -29,6 +29,8 @@ go.work.sum
 /config/stack.env
 /config/stack.env.bak
 /config/admin-init.password
+# Firebase service account key (secret): see README, "Push notifications".
+/config/push/
 
 # Editor/IDE
 # .idea/

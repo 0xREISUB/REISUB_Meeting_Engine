@@ -111,6 +111,8 @@ func SetupRoutes(r *gin.Engine) {
 		social.PATCH("/me", controllers.UpdateProfile)
 		social.PUT("/me/avatar", controllers.UploadAvatar)
 		social.DELETE("/me/avatar", controllers.DeleteAvatar)
+		social.PUT("/me/push-device", controllers.PutPushDevice)
+		social.DELETE("/me/push-device", controllers.DeletePushDevice)
 		social.GET("/social", controllers.GetSocialOverview)
 		social.GET("/notifications", controllers.GetNotifications)
 

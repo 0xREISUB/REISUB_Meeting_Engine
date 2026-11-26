@@ -13,14 +13,15 @@ type User struct {
 	ID       uint   `gorm:"primaryKey"`
 	Nick     string `gorm:"uniqueIndex;not null"`
 	Password string `gorm:"not null"`
-	// TokenHash is the SHA-256 of the user's session token (see HashToken);
-	// the token itself is never stored. Empty without a session.
+	// TokenHash is the SHA-256 of a session token from before users could
+	// have several (see Session); it moves to a Session the first time it is
+	// used. Empty otherwise.
 	TokenHash string `gorm:"index"`
 	// IsGuest marks an anonymous session created by POST /guest. Guests have
 	// no password and can never log in; their nick is never shown to others.
 	IsGuest bool `gorm:"not null;default:false;index"`
-	// TokenExpiresAt ends a guest token; nil means the token does not expire
-	// (login tokens).
+	// TokenExpiresAt is when a guest's session ends, for their cleanup (the
+	// session has the same end); for accounts it only goes with TokenHash.
 	TokenExpiresAt *time.Time
 	// LastSeenAt is refreshed at most hourly by authenticated requests and
 	// drives the cleanup of inactive guests.

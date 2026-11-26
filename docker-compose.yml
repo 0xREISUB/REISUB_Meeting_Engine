@@ -62,11 +62,15 @@ services:
       # 720h); each day of use moves its end on.
       ACCOUNT_TOKEN_TTL: ${ACCOUNT_TOKEN_TTL:-}
       GUEST_INACTIVE_AFTER: ${GUEST_INACTIVE_AFTER:-}
+      # Push notifications to phones: the Firebase service account key, in
+      # config/push/ (mounted below). Empty turns push off.
+      FCM_CREDENTIALS_FILE: ${FCM_CREDENTIALS_FILE:-}
     # No published port: the backend is reachable only through Nginx Proxy
     # Manager (HTTPS) on proxy-agi, and from LiveKit on the default network.
     volumes:
       - backend_data:/data
       - ./web:/web:ro
+      - ./config/push:/push:ro
     networks:
       default:
       # Nginx Proxy Manager forwards meeting.reisub.xyz and

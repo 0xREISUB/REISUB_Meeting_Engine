@@ -19,6 +19,7 @@ import (
 func main() {
 	database.ConnectDB()
 	controllers.StartGuestCleanup()
+	controllers.StartPush()
 	controllers.StartRoomCleanup()
 	if err := controllers.ScheduleRoomEnds(); err != nil {
 		log.Fatal("Toplantı süre sınırları zamanlanamadı: ", err)
